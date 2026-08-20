@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "note": "오탐 억제/심각도 룰 라이브러리. 코드 수정 없이 이 파일만 늘려서 오탐을 줄이고 룰을 고도화한다. 폐쇄망 대비 stdlib(JSON)만 사용.",
+
+  "severity_by_category": {
+    "sql-injection": "critical",
+    "code-injection": "critical",
+    "command-injection": "critical",
+    "ssti": "critical",
+    "deserialization": "critical",
+    "hardcoded-secret": "high",
+    "path-traversal": "high",
+    "xxe": "high",
+    "xss": "high",
+    "open-redirect": "medium",
+    "iac-misconfig": "medium",
+    "info-disclosure": "low",
+    "ci-hardening": "low",
+    "supply-chain": "low"
+  },
+
+  "path_suppress": [
+    {"pattern": "(^|/)(test|tests|__tests__|spec|specs)/", "reason": "테스트 코드"},
+    {"pattern": "(^|/)(examples?|samples?|fixtures?|codefixes|mocks?)/", "reason": "예제/픽스처(비-런타임)"},
+    {"pattern": "_correct\\.[a-z0-9]+$", "reason": "참조-정답 파일"},
+    {"pattern": "\\.(min|bundle)\\.(js|css)$", "reason": "빌드 산출물"},
+    {"pattern": "(^|/)(vendor|node_modules|dist|build|out|coverage)/", "reason": "서드파티/빌드 산출물"},
+    {"pattern": "(^|/)docs?/", "reason": "문서"},
+    {"pattern": "\\.(md|markdown|rst|txt)$", "reason": "문서 파일"}
+  ],
+
+  "rule_suppress": [],
+
+  "downgrade": [
+    {"category": "iac-misconfig", "code_contains": "\"public\"", "to_severity": "info",
+     "reason": "설계상 퍼블릭 서브넷(public 이름) — 의도된 공인 IP"},
+    {"category": "path-traversal", "code_regex": "!\\s*\\w+\\.includes\\(['\"]/['\"]\\)", "to_severity": "low",
+     "reason": "슬래시 차단 가드 선행 — 디렉터리 이탈 완화됨"}
+  ]
+}

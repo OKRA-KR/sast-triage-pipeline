@@ -44,7 +44,7 @@ fi
 OUT="$OUTBASE/$NAME"
 echo "[*] 대상: $TARGET"
 echo "[*] 출력: $OUT"
-python3 "$ROOT/pipeline.py" --target "$TARGET" --out "$OUT" --name "$NAME" --mode layer1
+( cd "$ROOT" && python3 -m sast scan "$TARGET" --out "$OUT" --name "$NAME" )
 
 echo
 echo "완료. 대시보드를 브라우저로 여세요:"
