@@ -1,0 +1,82 @@
+[
+  {
+    "id": "D1",
+    "title": "Prometheus 메트릭 무인증 노출",
+    "cls": "info-disclosure",
+    "status": "CONFIRMED",
+    "evidence": "GET /metrics → HTTP 200, 메트릭 본문 노출",
+    "sast": "missed"
+  },
+  {
+    "id": "D2",
+    "title": "API 문서(Swagger) 노출",
+    "cls": "info-disclosure",
+    "status": "CONFIRMED",
+    "evidence": "GET /api-docs/ → HTTP 200",
+    "sast": "missed"
+  },
+  {
+    "id": "D3",
+    "title": "일반 인증자에게 전체 사용자 목록/이메일 노출(열거)",
+    "cls": "broken-access-control",
+    "status": "CONFIRMED",
+    "evidence": "GET /api/Users → HTTP 200, 전체 사용자 이메일 23개 노출(password 해시 0개)",
+    "sast": "missed"
+  },
+  {
+    "id": "D4",
+    "title": "장바구니 IDOR(타 사용자 접근)",
+    "cls": "broken-access-control",
+    "status": "CONFIRMED",
+    "evidence": "/rest/basket/1..3 상태 [200, 200, 200], 관측된 UserId [1, 2, 3]",
+    "sast": "missed"
+  },
+  {
+    "id": "D5",
+    "title": "보안 헤더 누락",
+    "cls": "security-misconfig",
+    "status": "CONFIRMED",
+    "evidence": "누락 헤더: content-security-policy, strict-transport-security (X-Powered-By=-)",
+    "sast": "missed"
+  },
+  {
+    "id": "D6",
+    "title": "기밀 문서 직접 접근",
+    "cls": "sensitive-data-exposure",
+    "status": "CONFIRMED",
+    "evidence": "GET /ftp/acquisitions.md → HTTP 200, 909 bytes",
+    "sast": "partial"
+  },
+  {
+    "id": "D7",
+    "title": "백업 파일(쿠폰) 유출",
+    "cls": "sensitive-data-exposure",
+    "status": "NOT",
+    "evidence": "GET /ftp/coupons_2013.md.bak → HTTP 403, 2076 bytes",
+    "sast": "missed"
+  },
+  {
+    "id": "D8",
+    "title": "로그인 무차별 방어 부재(레이트리밋/락아웃 없음)",
+    "cls": "missing-anti-automation",
+    "status": "CONFIRMED",
+    "evidence": "연속 6회 실패 로그인 상태=[401, 401, 401, 401, 401, 401] (429 없음 → 차단 미적용)",
+    "sast": "missed"
+  },
+  {
+    "id": "FP-F030",
+    "title": "경로순회(가드로 완화) 재현 시도",
+    "cls": "path-traversal(fp-check)",
+    "status": "FP_CONFIRMED",
+    "evidence": "슬래시 포함 요청 → HTTP 403 (이탈 차단됨)",
+    "sast": "flagged"
+  },
+  {
+    "id": "FP-F015",
+    "title": "코드픽스 SQLi 스니펫 = 주입 엔드포인트 아님",
+    "cls": "sql-injection(fp-check)",
+    "status": "FP_CONFIRMED",
+    "evidence": "코드픽스 파일은 정적 제공(HTTP 200, 소스 노출은 별건)이나 SQL 주입 라우트가 아님 — SQLi 오탐 확정. 실주입은 라이브 라우트 F035에서만.",
+    "sast": "flagged"
+  }
+]
