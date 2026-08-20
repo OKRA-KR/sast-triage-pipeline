@@ -1,7 +1,7 @@
 """SAST CLI 진입점.  python3 -m sast scan <target> --out <dir>"""
 import argparse, os, sys
 from .engines import run_all
-from . import triage, report
+from . import triage, crossval, report
 
 def cmd_scan(a):
     target = os.path.abspath(a.target)
@@ -17,7 +17,9 @@ def cmd_scan(a):
         print("[!] 사용 가능한 엔진이 없습니다 (semgrep 설치 필요)"); return 3
     print(f"[*] 엔진: {', '.join(engines)}  원시 {len(findings)}건")
 
-    triage.apply(findings)
+    rules = triage.load_rules()
+    triage.apply(findings, rules)
+    crossval.apply(findings, rules)
     res = report.build(name, target, engines, findings, out, mode="layer1")
     s = res["summary"]
     print(f"[*] 억제 {s['suppressed']} · 검토대상 {s['needs_review']} · 심각도 {s['by_severity']}")

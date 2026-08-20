@@ -19,11 +19,15 @@ def categorize(rule_id, cwe):
         (("sql", "cwe-89"), "sql-injection"),
         (("eval", "code-string-concat", "cwe-95", "code-injection"), "code-injection"),
         (("command", "shell", "cwe-78"), "command-injection"),
-        (("traversal", "sendfile", "path-injection", "cwe-73", "cwe-22"), "path-traversal"),
+        (("traversal", "sendfile", "path-injection", "zipslip", "cwe-73", "cwe-22"), "path-traversal"),
         (("prototype", "property-injection"), "prototype-pollution"),
         (("redos", "cwe-1333", "cwe-400"), "redos"),
         (("stack-trace", "clear-text", "cleartext", "sensitive-get", "sensitive-log", "cwe-200", "cwe-209", "cwe-312", "cwe-532"), "info-disclosure"),
         (("sanitization", "sanitiz"), "weak-sanitization"),
+        (("jwt-signature", "missing-jwt", "signature-check"), "access-control"),
+        (("csrf", "cwe-352"), "csrf"),
+        (("log-injection", "cwe-117"), "log-injection"),
+        (("cookie", "httponly", "cwe-614", "cwe-1004"), "insecure-cookie"),
         (("controlled-bypass", "access-control", "missing-token-validation"), "access-control"),
         (("insecure_random", "random_generator", "cwe-330", "cwe-338"), "insecure-randomness"),
         (("md5", "sha1", "weak", "node_password", "cwe-327", "cwe-328", "cwe-916"), "weak-crypto"),
@@ -55,7 +59,7 @@ def new_finding(**kw):
         severity="low", verdict="needs_review", confidence=0.0,
         file="", line=0, endline=0, cwe=[], owasp=[], code="", message="",
         rationale="", evidence="", fix="", poc="", reachable="unknown",
-        source="SAST", dynamic=None, suppressed=False, suppress_reason="",
+        source="SAST", dynamic=None, corroborated=None, suppressed=False, suppress_reason="",
     )
     base.update(kw)
     return base

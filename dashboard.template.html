@@ -55,6 +55,8 @@ td.rule{font-family:"IBM Plex Mono",monospace;font-size:12px;}
 .sev-medium{background:var(--med-bg);color:var(--med);}.sev-low{background:var(--low-bg);color:var(--low);}
 .vd-true_positive{background:var(--crit-bg);color:var(--crit);}.vd-false_positive{background:var(--ok-bg);color:var(--ok);}
 .vd-needs_review{background:var(--warn-bg);color:var(--warn);}.vd-untriaged{background:var(--low-bg);color:var(--low);}
+.vd-likely_fp{background:var(--ok-bg);color:var(--ok);}
+.xval{display:inline-block;font-size:10px;font-weight:700;padding:1px 5px;margin-left:6px;border-radius:5px;background:var(--crit-bg);color:var(--crit);font-family:"IBM Plex Mono",monospace;}
 .src{font-size:10.5px;font-family:"IBM Plex Mono",monospace;color:var(--ink-faint);}
 tr.sup{opacity:.5;}
 tr.detail td{padding:0;background:var(--surface-2);border-bottom:1px solid var(--line-2);}
@@ -121,7 +123,7 @@ const DATA = /*__DATA__*/null;
 const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const SEVORD = {critical:0,high:1,medium:2,low:3,info:4};
 const SEVKO = {critical:"크리티컬",high:"높음",medium:"중간",low:"낮음",info:"정보"};
-const VDKO = {true_positive:"실제 취약점",false_positive:"오탐",needs_review:"검토 필요",untriaged:"미분류"};
+const VDKO = {true_positive:"실제 취약점",false_positive:"오탐",needs_review:"검토 필요",likely_fp:"오탐 추정(교차)",untriaged:"미분류"};
 let RESULTS=null, filters={sev:new Set(),q:"",showSup:false};
 
 function loadFile(file){
@@ -168,7 +170,7 @@ function draw(){
     const tr=document.createElement('tr'); tr.className='row'+(f.suppressed?' sup':'');
     tr.innerHTML=
       `<td><span class="pill sev-${f.severity}">${SEVKO[f.severity]||f.severity}</span></td>`+
-      `<td><span class="pill vd-${f.verdict}">${VDKO[f.verdict]||f.verdict}</span></td>`+
+      `<td><span class="pill vd-${f.verdict}">${VDKO[f.verdict]||f.verdict}</span>${f.corroborated===true?'<span class="xval" title="CodeQL taint 교차확증">⚑2엔진</span>':''}</td>`+
       `<td class="mono" style="font-size:12px">${esc(f.category)}</td>`+
       `<td class="rule">${esc(f.rule)}</td>`+
       `<td class="file" title="${esc(f.file)}:${f.line}">${esc(f.file)}:${f.line}</td>`+

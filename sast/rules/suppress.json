@@ -16,6 +16,9 @@
     "prototype-pollution": "high",
     "access-control": "high",
     "weak-crypto": "medium",
+    "csrf": "medium",
+    "log-injection": "medium",
+    "insecure-cookie": "low",
     "insecure-randomness": "low",
     "open-redirect": "medium",
     "redos": "medium",
@@ -48,5 +51,19 @@
      "reason": "설계상 퍼블릭 서브넷(public 이름) — 의도된 공인 IP"},
     {"category": "path-traversal", "code_regex": "!\\s*\\w+\\.includes\\(['\"]/['\"]\\)", "to_severity": "low",
      "reason": "슬래시 차단 가드 선행 — 디렉터리 이탈 완화됨"}
-  ]
+  ],
+
+  "crossval": {
+    "note": "패턴 엔진(njsscan 등) 오탐을 taint 엔진(CodeQL) 결과로 정정. 같은 파일에 taint 확증이 없으면 강등, 있으면 교차확증(신뢰↑). taint 결과가 아예 없으면(비-deep) 비활성.",
+    "taint_engines": ["codeql"],
+    "require_corroboration": [
+      {
+        "category": "nosql-injection",
+        "by_categories": ["nosql-injection", "sql-injection", "code-injection"],
+        "to_severity": "low",
+        "verdict": "likely_fp",
+        "reason": "CodeQL taint 미확증 — 파라미터라이즈드(Sequelize where-객체) 쿼리로 추정, njsscan 패턴 오탐"
+      }
+    ]
+  }
 }

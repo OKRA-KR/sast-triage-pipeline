@@ -14,7 +14,14 @@ Semgrep 룰 엔진 + 데이터 기반 오탐 억제 + 고정 스키마 결과 + 
 
 **엔진 조합**: 기본은 Semgrep(패턴, 빠름). `--deep`은 CodeQL(taint 기반)을 더해 Semgrep이
 못 보는 흐름 취약점(레이트리밋 부재·경로/프로토타입 오염·정보 노출 등)을 잡는다.
-CodeQL CLI 위치는 `CODEQL_HOME` 또는 PATH, 없으면 `~/codeql`.
+지원 언어: JavaScript/TypeScript · Python · **Java**(`--build-mode=none` 소스추출, Maven/Gradle 빌드 불필요).
+CodeQL CLI 위치는 `CODEQL_HOME` 또는 PATH, 없으면 `~/codeql`. DB 는 임시 fs 에 생성 후 삭제,
+SARIF 만 `out/<name>/codeql.sarif` 에 남는다(`CODEQL_DB_DIR`, `CODEQL_RAM` 로 조정).
+
+**교차검증(crossval)**: `--deep` 일 때 패턴 엔진(njsscan)의 오탐을 CodeQL taint 로 정정한다.
+예) njsscan 의 `node_nosqli` 는 흐름 분석 없이 패턴만 봐서 Sequelize 파라미터라이즈드 쿼리까지
+오탐한다 → 같은 파일에 CodeQL taint 확증이 없으면 `오탐 추정(교차)`으로 강등, 있으면 2엔진 합의(신뢰↑).
+룰은 `rules/suppress.json`의 `crossval` 블록(데이터 주도). taint 결과가 없으면(비-deep) 비활성.
 
 또는 Windows에서 `sast-run.bat` 더블클릭 → 대상 입력.
 
@@ -30,9 +37,10 @@ sast/                     코어 (stdlib 전용, 오프라인)
     semgrep_engine.py     Semgrep 어댑터 (기본)
     codeql_engine.py      CodeQL 어댑터 (--deep, taint/dataflow)
   rules/
-    suppress.json         오탐 억제/심각도 룰 라이브러리 (데이터 — 코드 수정 없이 확장)
+    suppress.json         오탐 억제/심각도/교차검증 룰 라이브러리 (데이터 — 코드 수정 없이 확장)
   schema.py               통합 finding 스키마 + categorize/fingerprint
   triage.py               suppress.json 적용: 억제 + 심각도 (LLM 불필요)
+  crossval.py             엔진 교차검증: 패턴 엔진 오탐을 CodeQL taint 로 정정
   report.py               results.json(sast-results/2) + 대시보드 생성
   cli.py                  python3 -m sast scan <target> --out <dir>
 dashboard.template.html   넓은(1400px) 자체완결 뷰어

@@ -1,18 +1,26 @@
 """CodeQL 엔진 어댑터 — taint/dataflow 기반. DB 생성 후 보안 쿼리 분석 → SARIF 정규화.
 
-빌드 불필요 언어(javascript/typescript, python)만 지원. Java 등 빌드 필요 언어는
-컴파일 커맨드가 있어야 하므로 이 어댑터에선 건너뛴다(빈 결과).
+javascript/typescript · python 은 소스 추출(빌드 불필요).
+Java 는 CodeQL 의 `--build-mode=none`(소스 전용 추출)으로 Maven/Gradle 빌드 없이 분석한다
+— 폐쇄망/무빌드 목표에 맞춤. (빌드가 되면 정확도는 더 오르지만, 여기선 무빌드를 우선.)
 
 CodeQL CLI 위치: 환경변수 CODEQL_HOME 우선, 없으면 PATH, 없으면 ~/codeql.
 """
-import json, os, shutil, subprocess, glob
+import json, os, shutil, subprocess, glob, tempfile
 from ..schema import categorize, fingerprint, new_finding
 
 NAME = "codeql"
 
 # 분석 스위트 (언어별)
 SUITE = {"javascript": "javascript-security-extended.qls",
-         "python": "python-security-extended.qls"}
+         "python": "python-security-extended.qls",
+         "java": "java-security-extended.qls"}
+
+# 명시적 build-mode 가 필요한(컴파일 언어) 언어 → none = 소스 전용 추출(무빌드)
+BUILD_MODE = {"java": "none"}
+
+# 언어 판정용 확장자
+LANG_EXT = {"javascript": (".ts", ".js"), "python": (".py",), "java": (".java",)}
 
 def _cli():
     home = os.environ.get("CODEQL_HOME")
@@ -28,18 +36,17 @@ def available():
     return _cli() is not None
 
 def _detect_language(target):
+    """지원 언어 중 소스 파일이 가장 많은 언어 선택(최소 5개 이상)."""
     exts = {}
     for root, _, files in os.walk(target):
-        if any(x in root for x in ("/node_modules/", "/.git/", "/dist/", "/build/")):
+        if any(x in root for x in ("/node_modules/", "/.git/", "/dist/", "/build/", "/target/")):
             continue
         for f in files:
             e = os.path.splitext(f)[1].lower()
             exts[e] = exts.get(e, 0) + 1
-    if exts.get(".ts", 0) + exts.get(".js", 0) >= 5:
-        return "javascript"
-    if exts.get(".py", 0) >= 5:
-        return "python"
-    return None
+    counts = {lang: sum(exts.get(x, 0) for x in ex) for lang, ex in LANG_EXT.items()}
+    lang, n = max(counts.items(), key=lambda kv: kv[1])
+    return lang if n >= 5 else None
 
 def _sev_from_rule(props):
     try:
@@ -55,20 +62,33 @@ def run(target, out_dir):
     if not cli or lang not in SUITE:
         return []
     os.environ["CODEQL_ALLOW_INSTALLATION_ANYWHERE"] = "true"
-    db = os.path.join(out_dir, "codeql-db")
     sarif = os.path.join(out_dir, "codeql.sarif")
     # 캐시: 이미 분석된 SARIF 가 있으면 재빌드 생략(느린 DB build/analyze 회피)
     if os.environ.get("SAST_CODEQL_CACHE") and os.path.exists(sarif):
         return parse_sarif(sarif)
+    # DB 는 버리는 산출물 → 네이티브 임시 fs 에 생성(9P/네트워크 마운트에서 TRAP 쓰기가 느린 문제 회피).
+    # SARIF 만 out_dir 에 남긴다. CODEQL_DB_DIR 로 위치 지정 가능.
+    tmpbase = os.environ.get("CODEQL_DB_DIR") or tempfile.gettempdir()
+    db = tempfile.mkdtemp(prefix="codeql-db-", dir=tmpbase)
+    # analyze 는 쿼리별 힙이 크므로 단일 스레드+넉넉한 램(메트릭 쿼리 OOM 회피)
+    ram = os.environ.get("CODEQL_RAM", "6000")
+    create = [cli, "database", "create", db, f"--language={lang}",
+              f"--source-root={target}", "--overwrite", "--threads=0"]
+    if lang in BUILD_MODE:
+        create.append(f"--build-mode={BUILD_MODE[lang]}")
     try:
-        subprocess.run([cli, "database", "create", db, f"--language={lang}",
-                        f"--source-root={target}", "--overwrite", "--threads=0"],
-                       capture_output=True, timeout=1800)
+        r = subprocess.run(create, capture_output=True, timeout=3600, text=True)
+        if not os.path.exists(os.path.join(db, "codeql-database.yml")):
+            print("[!] CodeQL DB 생성 실패:", (r.stderr or "")[-400:])
+            return []
         subprocess.run([cli, "database", "analyze", db, "--format=sarif-latest",
-                        f"--output={sarif}", "--threads=0", SUITE[lang]],
-                       capture_output=True, timeout=1800)
-    except Exception:
+                        f"--output={sarif}", "--threads=1", f"--ram={ram}", SUITE[lang]],
+                       capture_output=True, timeout=3600)
+    except Exception as e:
+        print("[!] CodeQL 실행 예외:", e)
         return []
+    finally:
+        shutil.rmtree(db, ignore_errors=True)
     return parse_sarif(sarif)
 
 def parse_sarif(sarif_path):
