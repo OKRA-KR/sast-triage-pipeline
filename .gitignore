@@ -1,0 +1,7 @@
+# cloned third-party skill repo (has its own .git; dev-time only)
+claude-report-skill/
+# python
+__pycache__/
+*.pyc
+# unused vendored css (PicoCSS dependency was dropped)
+data/pico.min.css

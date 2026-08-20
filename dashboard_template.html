@@ -1,0 +1,275 @@
+<title>Juice Shop SAST Triage</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#f3f5f9; --surface:#ffffff; --surface-2:#eef1f6; --surface-3:#e6eaf1;
+    --ink:#1a2230; --ink-soft:#586074; --ink-faint:#8992a6;
+    --line:#dbe0ea; --line-2:#c7cedb;
+    --accent:#3b5bdb; --accent-soft:#e7ebfb;
+    --tp:#cf3a3a; --tp-bg:#fbe8e8; --fp:#2f9e5f; --fp-bg:#e5f4ec; --nr:#b9821a; --nr-bg:#f7efda;
+    --p1:#c1272d; --p2:#d9822b; --p3:#3b6fb5; --p4:#8a94a8;
+    --hi:#cf3a3a; --med:#d9822b; --low:#6b7688; --none:#9aa2b2;
+    --code-bg:#0f1522; --code-ink:#cdd7e6; --code-dim:#6f7d93;
+    --shadow:0 1px 2px rgba(20,30,50,.04),0 6px 20px rgba(20,30,50,.06);
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#0f131a; --surface:#171d27; --surface-2:#1f2733; --surface-3:#273140;
+    --ink:#e6ebf3; --ink-soft:#98a3b7; --ink-faint:#6a7486;
+    --line:#28313d; --line-2:#38434f;
+    --accent:#6e8bf0; --accent-soft:#1e2740;
+    --tp:#e8756f; --tp-bg:#2c1a1a; --fp:#57bd89; --fp-bg:#14271d; --nr:#d8ab52; --nr-bg:#2a2416;
+    --p1:#e56a6a; --p2:#e0975a; --p3:#6e9fdc; --p4:#7d8798;
+    --hi:#e8756f; --med:#e0975a; --low:#8791a3; --none:#6a7486;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.4);
+  }}
+  :root[data-theme="dark"]{
+    --bg:#0f131a; --surface:#171d27; --surface-2:#1f2733; --surface-3:#273140;
+    --ink:#e6ebf3; --ink-soft:#98a3b7; --ink-faint:#6a7486;
+    --line:#28313d; --line-2:#38434f;
+    --accent:#6e8bf0; --accent-soft:#1e2740;
+    --tp:#e8756f; --tp-bg:#2c1a1a; --fp:#57bd89; --fp-bg:#14271d; --nr:#d8ab52; --nr-bg:#2a2416;
+    --p1:#e56a6a; --p2:#e0975a; --p3:#6e9fdc; --p4:#7d8798;
+    --hi:#e8756f; --med:#e0975a; --low:#8791a3; --none:#6a7486;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,"Malgun Gothic",sans-serif;
+    font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,monospace;}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px clamp(14px,3vw,32px) 80px;}
+
+  /* header */
+  header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px;}
+  .brand .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:7px;}
+  h1{font-size:clamp(22px,3.4vw,30px);font-weight:700;letter-spacing:-.02em;margin:0;}
+  .meta{font-size:12.5px;color:var(--ink-soft);text-align:right;line-height:1.7;}
+  .meta b{color:var(--ink);font-weight:600;}
+  .meta .mono{font-size:11.5px;}
+
+  /* summary tiles */
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px;}
+  .tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:15px 17px;box-shadow:var(--shadow);position:relative;overflow:hidden;}
+  .tile .k{font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);font-weight:600;}
+  .tile .v{font-size:30px;font-weight:700;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .tile .sub{font-size:11.5px;color:var(--ink-faint);margin-top:2px;}
+  .tile.accent{border-left:3px solid var(--accent);} .tile.tp{border-left:3px solid var(--tp);}
+  .tile.nr{border-left:3px solid var(--nr);} .tile.fp{border-left:3px solid var(--fp);}
+  .tile.crit{border-left:3px solid var(--p1);} .tile.crit .v{color:var(--p1);}
+
+  /* distribution bar */
+  .dist{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px;}
+  .distbox{flex:1;min-width:260px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);}
+  .distbox h3{margin:0 0 10px;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);font-weight:600;}
+  .stack{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--surface-2);}
+  .stack i{display:block;height:100%;}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:11px;font-size:12px;color:var(--ink-soft);}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .dot{width:9px;height:9px;border-radius:3px;display:inline-block;}
+
+  /* controls */
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;}
+  .search{flex:1;min-width:200px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line-2);border-radius:9px;padding:8px 12px;box-shadow:var(--shadow);}
+  .search input{border:0;outline:0;background:transparent;color:var(--ink);font:inherit;width:100%;}
+  .search svg{flex:none;color:var(--ink-faint);}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{cursor:pointer;user-select:none;font-size:12px;font-weight:600;padding:6px 11px;border-radius:20px;border:1px solid var(--line-2);background:var(--surface);color:var(--ink-soft);transition:all .12s;}
+  .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .chip.v-tp[aria-pressed="true"]{background:var(--tp);border-color:var(--tp);}
+  .chip.v-fp[aria-pressed="true"]{background:var(--fp);border-color:var(--fp);}
+  .chip.v-nr[aria-pressed="true"]{background:var(--nr);border-color:var(--nr);color:#111;}
+
+  /* table */
+  .tablewrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;}
+  table{border-collapse:collapse;width:100%;}
+  thead th{text-align:left;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);font-weight:600;padding:11px 12px;border-bottom:1px solid var(--line-2);background:var(--surface-2);white-space:nowrap;}
+  tbody tr.row{border-bottom:1px solid var(--line);cursor:pointer;}
+  tbody tr.row:hover{background:var(--surface-2);}
+  tbody td{padding:10px 12px;vertical-align:middle;}
+  td.idc{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:12.5px;color:var(--ink-soft);}
+  td.loc{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-soft);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  td.rulec{font-family:"IBM Plex Mono",monospace;font-size:11.5px;}
+  .pill{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;white-space:nowrap;font-family:"IBM Plex Mono",monospace;}
+  .pri-P1{background:var(--tp-bg);color:var(--p1);} .pri-P2{background:var(--nr-bg);color:var(--p2);}
+  .pri-P3{background:var(--accent-soft);color:var(--p3);} .pri-P4{background:var(--surface-3);color:var(--p4);}
+  .vd-TRUE_POSITIVE{background:var(--tp-bg);color:var(--tp);} .vd-FALSE_POSITIVE{background:var(--fp-bg);color:var(--fp);}
+  .vd-NEEDS_REVIEW{background:var(--nr-bg);color:var(--nr);}
+  .exp{font-size:11.5px;font-weight:600;font-family:"IBM Plex Mono",monospace;}
+  .exp-HIGH{color:var(--hi);} .exp-MEDIUM{color:var(--med);} .exp-LOW{color:var(--low);} .exp-NONE{color:var(--none);}
+  .conf{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums;}
+  .confbar{width:38px;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden;}
+  .confbar i{display:block;height:100%;background:var(--accent);}
+  .reach-false{opacity:.55;}
+
+  /* detail */
+  tr.detail td{padding:0;background:var(--surface-2);border-bottom:1px solid var(--line-2);}
+  .detail-inner{padding:16px 18px;display:grid;grid-template-columns:1.3fr 1fr;gap:18px;}
+  @media (max-width:760px){.detail-inner{grid-template-columns:1fr;}}
+  .detail-inner h4{margin:0 0 7px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);font-weight:600;}
+  pre.code{margin:0;background:var(--code-bg);color:var(--code-ink);border-radius:9px;padding:13px 14px;overflow-x:auto;font-family:"IBM Plex Mono",monospace;font-size:12px;line-height:1.65;}
+  .kv{margin-bottom:13px;} .kv p{margin:0;font-size:13px;}
+  .kv .evi{font-family:"IBM Plex Mono",monospace;font-size:11.5px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 9px;color:var(--ink);display:block;overflow-x:auto;}
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+  .tag{font-size:10.5px;font-family:"IBM Plex Mono",monospace;padding:2px 7px;border-radius:5px;background:var(--surface-3);color:var(--ink-soft);}
+  .note{border-left:3px solid var(--nr);background:var(--nr-bg);padding:8px 11px;border-radius:0 7px 7px 0;font-size:12.5px;color:var(--ink);}
+  .empty{padding:40px;text-align:center;color:var(--ink-faint);}
+  footer{margin-top:22px;font-size:11.5px;color:var(--ink-faint);text-align:center;line-height:1.7;}
+  .count{font-size:12px;color:var(--ink-soft);margin:0 0 8px;}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="eyebrow">SAST · 2-Layer Pipeline</div>
+      <h1>Juice Shop — Triage Dashboard</h1>
+    </div>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="dist">
+    <div class="distbox"><h3>Verdict distribution</h3><div class="stack" id="stack-v"></div><div class="legend" id="leg-v"></div></div>
+    <div class="distbox"><h3>Priority distribution</h3><div class="stack" id="stack-p"></div><div class="legend" id="leg-p"></div></div>
+  </div>
+
+  <div class="controls">
+    <label class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>
+      <input id="q" type="search" placeholder="Search rule, file, category, rationale…" autocomplete="off">
+    </label>
+    <div class="chips" id="vchips">
+      <span class="chip v-tp" data-k="verdict" data-v="TRUE_POSITIVE" aria-pressed="false">True Positive</span>
+      <span class="chip v-nr" data-k="verdict" data-v="NEEDS_REVIEW" aria-pressed="false">Needs Review</span>
+      <span class="chip v-fp" data-k="verdict" data-v="FALSE_POSITIVE" aria-pressed="false">False Positive</span>
+    </div>
+    <div class="chips" id="pchips">
+      <span class="chip" data-k="priority" data-v="P1" aria-pressed="false">P1</span>
+      <span class="chip" data-k="priority" data-v="P2" aria-pressed="false">P2</span>
+      <span class="chip" data-k="priority" data-v="P3" aria-pressed="false">P3</span>
+      <span class="chip" data-k="priority" data-v="P4" aria-pressed="false">P4</span>
+    </div>
+  </div>
+
+  <p class="count" id="count"></p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>ID</th><th>Pri</th><th>Verdict</th><th>Exploit</th><th>Conf</th><th>Category</th><th>Rule</th><th>Location</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>No findings match the current filters.</div>
+  </div>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const MERGED = /*__DATA__*/null;
+const META   = /*__META__*/null;
+
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const filters = {verdict:new Set(), priority:new Set(), q:""};
+
+// meta
+document.getElementById('meta').innerHTML =
+  `<div><b>Target</b> ${esc(META.target)}</div>`+
+  `<div class="mono">${esc(META.scanner)}</div>`+
+  `<div><b>Scanned</b> ${esc(META.scanned_at)} · <b>${META.total}</b> raw findings</div>`;
+
+// tiles
+const tiles=[
+  {cls:'accent',k:'Total findings',v:META.total,sub:'Layer-1 raw matches'},
+  {cls:'crit',k:'P1 critical',v:META.p1,sub:'reachable · high exploit'},
+  {cls:'tp',k:'True positive',v:META.true_positive,sub:`signal ratio ${(META.signal_ratio*100).toFixed(0)}%`},
+  {cls:'nr',k:'Needs review',v:META.needs_review,sub:'context-dependent'},
+  {cls:'fp',k:'False positive',v:META.false_positive,sub:'cleared as noise'},
+];
+document.getElementById('tiles').innerHTML=tiles.map(t=>
+  `<div class="tile ${t.cls}"><div class="k">${t.k}</div><div class="v">${t.v}</div><div class="sub">${t.sub}</div></div>`).join('');
+
+// distributions
+function stack(el,legEl,parts){
+  const tot=parts.reduce((a,p)=>a+p.n,0)||1;
+  el.innerHTML=parts.map(p=>`<i style="width:${p.n/tot*100}%;background:${p.c}" title="${p.label}: ${p.n}"></i>`).join('');
+  legEl.innerHTML=parts.map(p=>`<span><i class="dot" style="background:${p.c}"></i>${p.label} <b>${p.n}</b></span>`).join('');
+}
+const cv=getComputedStyle(document.documentElement);
+stack(document.getElementById('stack-v'),document.getElementById('leg-v'),[
+  {label:'True positive',n:META.true_positive,c:cv.getPropertyValue('--tp')},
+  {label:'Needs review',n:META.needs_review,c:cv.getPropertyValue('--nr')},
+  {label:'False positive',n:META.false_positive,c:cv.getPropertyValue('--fp')},
+]);
+stack(document.getElementById('stack-p'),document.getElementById('leg-p'),[
+  {label:'P1',n:META.p1,c:cv.getPropertyValue('--p1')},{label:'P2',n:META.p2,c:cv.getPropertyValue('--p2')},
+  {label:'P3',n:META.p3,c:cv.getPropertyValue('--p3')},{label:'P4',n:META.p4,c:cv.getPropertyValue('--p4')},
+]);
+
+// priority sort order
+const PORD={P1:0,P2:1,P3:2,P4:3};
+const sorted=[...MERGED].sort((a,b)=>PORD[a.triage.priority]-PORD[b.triage.priority] || b.triage.confidence-a.triage.confidence);
+
+function match(m){
+  const t=m.triage;
+  if(filters.verdict.size && !filters.verdict.has(t.verdict)) return false;
+  if(filters.priority.size && !filters.priority.has(t.priority)) return false;
+  if(filters.q){
+    const hay=(m.rule+' '+m.path+' '+t.category+' '+t.rationale+' '+t.triage_note+' '+m.message).toLowerCase();
+    if(!hay.includes(filters.q)) return false;
+  }
+  return true;
+}
+
+function render(){
+  const rows=document.getElementById('rows'); rows.innerHTML='';
+  const vis=sorted.filter(match);
+  document.getElementById('empty').hidden = vis.length>0;
+  document.getElementById('count').textContent = `${vis.length} of ${MERGED.length} findings shown`;
+  for(const m of vis){
+    const t=m.triage;
+    const tr=document.createElement('tr'); tr.className='row'+(t.reachable==='false'?' reach-false':'');
+    tr.innerHTML=
+      `<td class="idc">${m.id}</td>`+
+      `<td><span class="pill pri-${t.priority}">${t.priority}</span></td>`+
+      `<td><span class="pill vd-${t.verdict}">${t.verdict.replace('_',' ').replace('_',' ')}</span></td>`+
+      `<td><span class="exp exp-${t.exploitability}">${t.exploitability}</span></td>`+
+      `<td><span class="conf"><span class="confbar"><i style="width:${Math.round(t.confidence*100)}%"></i></span>${t.confidence.toFixed(2)}</span></td>`+
+      `<td><span class="mono" style="font-size:11.5px">${esc(t.category)}</span></td>`+
+      `<td class="rulec">${esc(m.rule)}</td>`+
+      `<td class="loc" title="${esc(m.path)}:${m.line}">${esc(m.path)}:${m.line}</td>`;
+    const det=document.createElement('tr'); det.className='detail'; det.hidden=true;
+    det.innerHTML=`<td colspan="8"><div class="detail-inner">
+      <div>
+        <h4>Code context — ${esc(m.path)}:${m.line}</h4>
+        <pre class="code">${esc(m.code)}</pre>
+        <div class="tags">${(m.cwe||[]).map(c=>`<span class="tag">${esc(c.split(':')[0])}</span>`).join('')}
+          ${(m.owasp||[]).map(o=>`<span class="tag">${esc(o.split(' - ')[0])}</span>`).join('')}</div>
+      </div>
+      <div>
+        <div class="kv"><h4>Rationale</h4><p>${esc(t.rationale)}</p></div>
+        <div class="kv"><h4>Evidence</h4><code class="evi">${esc(t.evidence)}</code></div>
+        <div class="kv"><h4>Suggested fix</h4><p>${esc(t.suggested_fix||'—')}</p></div>
+        ${t.triage_note?`<div class="kv"><h4>Triage note</h4><div class="note">${esc(t.triage_note)}</div></div>`:''}
+        <div class="kv"><h4>Signals</h4><p class="mono" style="font-size:11.5px;color:var(--ink-soft)">reachable=${t.reachable} · exploit=${t.exploitability} · confidence=${t.confidence} · engine-sev=${m.severity}</p></div>
+      </div></div></td>`;
+    tr.addEventListener('click',()=>{det.hidden=!det.hidden;});
+    rows.appendChild(tr); rows.appendChild(det);
+  }
+}
+
+// wire controls
+document.getElementById('q').addEventListener('input',e=>{filters.q=e.target.value.trim().toLowerCase();render();});
+document.querySelectorAll('.chip').forEach(ch=>{
+  ch.addEventListener('click',()=>{
+    const on=ch.getAttribute('aria-pressed')==='true'; ch.setAttribute('aria-pressed',String(!on));
+    const set=filters[ch.dataset.k]; on?set.delete(ch.dataset.v):set.add(ch.dataset.v); render();
+  });
+});
+document.getElementById('foot').innerHTML=
+  `Layer 1: Semgrep rule engine → Layer 2: LLM triage (verdict schema-enforced) · draft pipeline · ${esc(META.scanned_at)}`;
+render();
+</script>

