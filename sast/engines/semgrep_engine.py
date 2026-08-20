@@ -4,7 +4,10 @@ from ..schema import categorize, fingerprint, new_finding, SEMGREP_SEV
 
 NAME = "semgrep"
 CONFIGS = ["p/owasp-top-ten", "p/javascript", "p/typescript", "p/python",
-           "p/java", "p/secrets"]
+           "p/java", "p/secrets",
+           # --- 보강 룰팩 (커버리지↑) ---
+           "p/security-audit", "p/nodejsscan", "p/xss", "p/jwt",
+           "p/command-injection", "p/sql-injection"]
 
 def available():
     return shutil.which("semgrep") is not None
@@ -23,7 +26,9 @@ def run(target, out_dir):
     for r in sg.get("results", []):
         path, s, e = r["path"], r["start"]["line"], r["end"]["line"]
         ex = r.get("extra", {}); md = ex.get("metadata", {})
-        rule = r["check_id"].split(".")[-1]
+        cid = r["check_id"]
+        rule = cid.split(".")[-1]
+        pack = ".".join(cid.split(".")[:2])   # 룰 출처(계열) 추적용
         cwe = md.get("cwe") or []; owasp = md.get("owasp") or []
         ctx = ""
         try:
@@ -34,7 +39,7 @@ def run(target, out_dir):
             pass
         findings.append(new_finding(
             fingerprint=fingerprint(rule, path, s, ctx), engines=[NAME],
-            rule=rule, category=categorize(r["check_id"], cwe),
+            rule=rule, full_rule=cid, pack=pack, category=categorize(cid, cwe),
             severity=SEMGREP_SEV.get(ex.get("severity", "INFO"), "low"),
             file=path, line=s, endline=e, cwe=cwe, owasp=owasp,
             code=ctx, message=ex.get("message", "").strip()))

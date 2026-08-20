@@ -4,6 +4,7 @@
 
   "severity_by_category": {
     "sql-injection": "critical",
+    "nosql-injection": "critical",
     "code-injection": "critical",
     "command-injection": "critical",
     "ssti": "critical",
@@ -12,8 +13,11 @@
     "path-traversal": "high",
     "xxe": "high",
     "xss": "high",
+    "weak-crypto": "medium",
+    "insecure-randomness": "medium",
     "open-redirect": "medium",
     "iac-misconfig": "medium",
+    "timing-attack": "low",
     "info-disclosure": "low",
     "ci-hardening": "low",
     "supply-chain": "low"

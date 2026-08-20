@@ -14,10 +14,14 @@ def categorize(rule_id, cwe):
     r = (rule_id or "").lower()
     c = " ".join(cwe or []).lower()
     table = [
+        (("nosql", "node_nosqli"), "nosql-injection"),
         (("sql", "cwe-89"), "sql-injection"),
         (("eval", "code-string-concat", "cwe-95"), "code-injection"),
         (("command", "shell", "cwe-78"), "command-injection"),
         (("traversal", "sendfile", "cwe-73", "cwe-22"), "path-traversal"),
+        (("insecure_random", "random_generator", "cwe-330", "cwe-338"), "insecure-randomness"),
+        (("md5", "sha1", "weak", "node_password", "cwe-327", "cwe-328", "cwe-916"), "weak-crypto"),
+        (("timing", "cwe-208"), "timing-attack"),
         (("secret", "hardcode", "jwt", "cwe-798"), "hardcoded-secret"),
         (("deserial", "cwe-502"), "deserialization"),
         (("xxe", "cwe-611"), "xxe"),
@@ -41,7 +45,7 @@ def fingerprint(rule, file, line, code):
 
 def new_finding(**kw):
     base = dict(
-        id="", fingerprint="", engines=[], rule="", category="other",
+        id="", fingerprint="", engines=[], rule="", full_rule="", pack="", category="other",
         severity="low", verdict="needs_review", confidence=0.0,
         file="", line=0, endline=0, cwe=[], owasp=[], code="", message="",
         rationale="", evidence="", fix="", poc="", reachable="unknown",
