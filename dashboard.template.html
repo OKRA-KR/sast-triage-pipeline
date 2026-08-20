@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAST 결과 대시보드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#0f131a;--surface:#171d27;--surface-2:#1f2733;--surface-3:#273140;--line:#2b3542;--line-2:#38434f;
+--ink:#e6ebf3;--ink-soft:#98a3b7;--ink-faint:#6a7486;
+--crit:#e8756f;--crit-bg:#2c1a1a;--high:#e0975a;--high-bg:#2a2416;--med:#6e9fdc;--med-bg:#1a2740;--low:#7d8798;--low-bg:#242c38;
+--ok:#57bd89;--ok-bg:#14271d;--warn:#d8ab52;--warn-bg:#2a2416;--code-bg:#0a0e15;--accent:#6e8bf0;}
+*{box-sizing:border-box}html,body{background:var(--bg);}
+body{margin:0;color:var(--ink);font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Malgun Gothic",sans-serif;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;}
+.mono,code,pre{font-family:"IBM Plex Mono",ui-monospace,monospace;}
+.wrap{max-width:1400px;margin:0 auto;padding:1.6rem clamp(14px,3vw,40px) 5rem;}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:14px;border-bottom:1px solid var(--line);padding-bottom:1rem;margin-bottom:1.2rem;}
+h1{margin:0;font-size:clamp(19px,2.6vw,26px);font-weight:700;letter-spacing:-.02em;}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin-bottom:6px;}
+.metaline{font-size:12px;color:var(--ink-faint);text-align:right;line-height:1.7;}
+.metaline b{color:var(--ink);}
+/* summary tiles — wide row */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.1rem;}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:12px 14px;}
+.tile .k{font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-soft);font-weight:600;}
+.tile .v{font-size:26px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums;}
+.tile.crit{border-left:3px solid var(--crit);}.tile.crit .v{color:var(--crit);}
+.tile.high{border-left:3px solid var(--high);}.tile.high .v{color:var(--high);}
+.tile.rev{border-left:3px solid var(--med);}.tile.sup{border-left:3px solid var(--low);}.tile.dyn{border-left:3px solid var(--ok);}.tile.dyn .v{color:var(--ok);}
+/* toolbar */
+.toolbar{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-bottom:12px;}
+.search{flex:1;min-width:200px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line-2);border-radius:9px;padding:7px 11px;}
+.search input{border:0;outline:0;background:transparent;color:var(--ink);font:inherit;width:100%;}
+.search svg{flex:none;color:var(--ink-faint);}
+.chip{cursor:pointer;user-select:none;font-size:12px;font-weight:600;padding:6px 11px;border-radius:20px;border:1px solid var(--line-2);background:var(--surface);color:var(--ink-soft);}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;}
+.chip.sev-critical[aria-pressed="true"]{background:var(--crit);border-color:var(--crit);}
+.chip.sev-high[aria-pressed="true"]{background:var(--high);border-color:var(--high);color:#111;}
+.chip.sev-medium[aria-pressed="true"]{background:var(--med);border-color:var(--med);}
+.chip.sev-low[aria-pressed="true"]{background:var(--low);border-color:var(--low);}
+label.file{cursor:pointer;font-size:12px;font-weight:600;padding:6px 11px;border-radius:9px;border:1px solid var(--accent);color:var(--accent);background:transparent;}
+label.file input{display:none;}
+.toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);cursor:pointer;}
+/* table */
+.tablewrap{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+table{border-collapse:collapse;width:100%;}
+thead th{text-align:left;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);font-weight:600;padding:10px 12px;background:var(--surface-2);border-bottom:1px solid var(--line-2);white-space:nowrap;}
+tbody tr.row{border-bottom:1px solid var(--line);cursor:pointer;}
+tbody tr.row:hover{background:var(--surface-2);}
+tbody td{padding:9px 12px;vertical-align:middle;}
+td.file{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-soft);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+td.rule{font-family:"IBM Plex Mono",monospace;font-size:12px;}
+.pill{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;font-family:"IBM Plex Mono",monospace;white-space:nowrap;}
+.sev-critical{background:var(--crit-bg);color:var(--crit);}.sev-high{background:var(--high-bg);color:var(--high);}
+.sev-medium{background:var(--med-bg);color:var(--med);}.sev-low{background:var(--low-bg);color:var(--low);}
+.vd-true_positive{background:var(--crit-bg);color:var(--crit);}.vd-false_positive{background:var(--ok-bg);color:var(--ok);}
+.vd-needs_review{background:var(--warn-bg);color:var(--warn);}.vd-untriaged{background:var(--low-bg);color:var(--low);}
+.src{font-size:10.5px;font-family:"IBM Plex Mono",monospace;color:var(--ink-faint);}
+tr.sup{opacity:.5;}
+tr.detail td{padding:0;background:var(--surface-2);border-bottom:1px solid var(--line-2);}
+.detail-inner{padding:14px 16px;display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
+@media (max-width:900px){.detail-inner{grid-template-columns:1fr;}}
+.detail-inner h5{margin:0 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);font-weight:700;}
+pre.code{margin:0;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:11px 12px;overflow-x:auto;font-size:11.5px;line-height:1.6;color:#cdd7e6;}
+.kv{margin-bottom:10px;font-size:13px;}.kv .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
+.tag{font-size:10px;font-family:"IBM Plex Mono",monospace;padding:2px 6px;border-radius:5px;background:var(--surface-3);color:var(--ink-soft);}
+.note{border-left:3px solid var(--warn);background:var(--warn-bg);padding:7px 10px;border-radius:0 6px 6px 0;font-size:12px;}
+.count{font-size:12px;color:var(--ink-soft);margin:0 0 8px;}
+/* drop zone */
+#drop{display:none;position:fixed;inset:0;background:rgba(15,19,26,.96);z-index:10;align-items:center;justify-content:center;text-align:center;}
+#drop.show{display:flex;}
+#drop .box{border:2px dashed var(--line-2);border-radius:16px;padding:48px 60px;max-width:520px;}
+#drop h2{margin:0 0 10px;font-size:20px;}#drop p{color:var(--ink-soft);margin:6px 0;}
+#drop label.file{display:inline-block;margin-top:14px;padding:10px 18px;font-size:14px;}
+footer{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-faint);}
+</style>
+</head>
+<body>
+<div id="drop"><div class="box" id="dropbox">
+  <h2>SAST 결과 불러오기</h2>
+  <p><code>results.json</code> 파일을 여기로 드래그하거나 아래 버튼으로 선택하세요.</p>
+  <p class="mono" style="font-size:11px;opacity:.6">pipeline.py 가 만든 표준 스키마(sast-results/1)를 읽습니다.</p>
+  <label class="file">results.json 선택<input type="file" id="fileTop" accept=".json"></label>
+</div></div>
+
+<div class="wrap" id="app" hidden>
+  <header>
+    <div>
+      <div class="eyebrow">SAST · 결과 대시보드</div>
+      <h1 id="target">—</h1>
+    </div>
+    <div class="metaline" id="metaline"></div>
+  </header>
+  <div class="tiles" id="tiles"></div>
+  <div class="toolbar">
+    <label class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>
+      <input id="q" type="search" placeholder="룰·파일·카테고리 검색…" autocomplete="off">
+    </label>
+    <div class="chips" id="sevchips">
+      <span class="chip sev-critical" data-sev="critical" aria-pressed="false">크리티컬</span>
+      <span class="chip sev-high" data-sev="high" aria-pressed="false">높음</span>
+      <span class="chip sev-medium" data-sev="medium" aria-pressed="false">중간</span>
+      <span class="chip sev-low" data-sev="low" aria-pressed="false">낮음</span>
+    </div>
+    <label class="toggle"><input type="checkbox" id="showSup"> 억제(오탐) 표시</label>
+    <label class="file">다른 결과 불러오기<input type="file" id="fileBtn" accept=".json"></label>
+  </div>
+  <p class="count" id="count"></p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>심각도</th><th>판정</th><th>카테고리</th><th>룰</th><th>위치</th><th>출처</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SEVORD = {critical:0,high:1,medium:2,low:3,info:4};
+const SEVKO = {critical:"크리티컬",high:"높음",medium:"중간",low:"낮음",info:"정보"};
+const VDKO = {true_positive:"실제 취약점",false_positive:"오탐",needs_review:"검토 필요",untriaged:"미분류"};
+let RESULTS=null, filters={sev:new Set(),q:"",showSup:false};
+
+function loadFile(file){
+  const r=new FileReader();
+  r.onload=()=>{ try{ render(JSON.parse(r.target.result)); }catch(e){ alert("results.json 파싱 실패: "+e); } };
+  r.readAsText(file);
+}
+document.getElementById('fileTop').addEventListener('change',e=>e.target.files[0]&&loadFile(e.target.files[0]));
+document.getElementById('fileBtn').addEventListener('change',e=>e.target.files[0]&&loadFile(e.target.files[0]));
+const drop=document.getElementById('drop');
+['dragover','dragenter'].forEach(ev=>window.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('show');}));
+document.getElementById('dropbox').addEventListener('dragleave',e=>{if(e.target.id==='dropbox')drop.classList.remove('show');});
+window.addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)loadFile(f);});
+
+function render(res){
+  RESULTS=res; document.getElementById('app').hidden=false; drop.classList.remove('show'); drop.style.display='none';
+  const m=res.meta||{}, s=res.summary||{};
+  document.getElementById('target').textContent=m.target||"(이름 없음)";
+  document.getElementById('metaline').innerHTML=
+    `<div><b>스캐너</b> ${esc(m.scanner||'-')}</div><div>${esc(m.scanned_at||'')} · <b>모드</b> ${esc(m.mode||'-')} · <b>${(res.findings||[]).length}</b>건</div>`;
+  const bs=s.by_severity||{};
+  const tiles=[
+    {cls:'crit',k:'크리티컬',v:bs.critical||0},{cls:'high',k:'높음',v:bs.high||0},
+    {cls:'',k:'중간',v:bs.medium||0},{cls:'',k:'낮음',v:bs.low||0},
+    {cls:'rev',k:'검토 필요',v:s.needs_review||0},{cls:'dyn',k:'동적 확증',v:s.dynamic_confirmed||0},
+    {cls:'sup',k:'억제(오탐)',v:s.suppressed||0},
+  ];
+  document.getElementById('tiles').innerHTML=tiles.map(t=>`<div class="tile ${t.cls}"><div class="k">${t.k}</div><div class="v">${t.v}</div></div>`).join('');
+  document.getElementById('foot').innerHTML=`스키마 ${esc(m.schema||'-')} · 자체완결 오프라인 대시보드 · 억제(오탐)는 기본 숨김 — 토글로 엔진개선용 확인`;
+  draw();
+}
+function match(f){
+  if(!filters.showSup && f.suppressed) return false;
+  if(filters.sev.size && !filters.sev.has(f.severity)) return false;
+  if(filters.q){const h=(f.rule+' '+f.file+' '+f.category+' '+(f.message||'')+' '+(f.rationale||'')).toLowerCase();if(!h.includes(filters.q))return false;}
+  return true;
+}
+function draw(){
+  const rows=document.getElementById('rows'); rows.innerHTML='';
+  const list=[...(RESULTS.findings||[])].sort((a,b)=>SEVORD[a.severity]-SEVORD[b.severity]);
+  const vis=list.filter(match);
+  document.getElementById('count').textContent=`${vis.length} / ${list.length}건 표시`;
+  for(const f of vis){
+    const tr=document.createElement('tr'); tr.className='row'+(f.suppressed?' sup':'');
+    tr.innerHTML=
+      `<td><span class="pill sev-${f.severity}">${SEVKO[f.severity]||f.severity}</span></td>`+
+      `<td><span class="pill vd-${f.verdict}">${VDKO[f.verdict]||f.verdict}</span></td>`+
+      `<td class="mono" style="font-size:12px">${esc(f.category)}</td>`+
+      `<td class="rule">${esc(f.rule)}</td>`+
+      `<td class="file" title="${esc(f.file)}:${f.line}">${esc(f.file)}:${f.line}</td>`+
+      `<td class="src">${esc(f.source||'SAST')}</td>`;
+    const det=document.createElement('tr'); det.className='detail'; det.hidden=true;
+    const dyn=f.dynamic?`<div class="kv"><h5>동적 검증</h5><div class="note">${esc(f.dynamic.status)} — ${esc(f.dynamic.evidence||'')}</div></div>`:'';
+    const poc=f.poc?`<h5>공격 구문</h5><pre class="code">${esc(f.poc)}</pre>`:'';
+    const sup=f.suppressed?`<div class="kv"><h5>억제 사유</h5><div class="note">오탐 억제: ${esc(f.suppress_reason)}</div></div>`:'';
+    det.innerHTML=`<td colspan="6"><div class="detail-inner">
+      <div><h5>코드 — ${esc(f.file)}:${f.line}</h5><pre class="code">${esc(f.code||'(컨텍스트 없음)')}</pre>
+        <div class="tags">${(f.cwe||[]).map(c=>`<span class="tag">${esc(c.split(':')[0])}</span>`).join('')}${(f.owasp||[]).map(o=>`<span class="tag">${esc(o.split(' - ')[0])}</span>`).join('')}</div></div>
+      <div>${f.message?`<div class="kv"><h5>룰 메시지</h5>${esc(f.message)}</div>`:''}
+        ${f.rationale?`<div class="kv"><h5>판정 근거</h5>${esc(f.rationale)}</div>`:''}
+        ${f.evidence?`<div class="kv"><h5>증거</h5><code>${esc(f.evidence)}</code></div>`:''}
+        ${poc}${dyn}${sup}
+        ${f.fix?`<div class="kv"><h5>수정 방안</h5>${esc(f.fix)}</div>`:''}</div>
+    </div></td>`;
+    tr.addEventListener('click',()=>det.hidden=!det.hidden);
+    rows.appendChild(tr); rows.appendChild(det);
+  }
+}
+document.getElementById('q').addEventListener('input',e=>{filters.q=e.target.value.trim().toLowerCase();draw();});
+document.querySelectorAll('#sevchips .chip').forEach(c=>c.addEventListener('click',()=>{
+  const on=c.getAttribute('aria-pressed')==='true';c.setAttribute('aria-pressed',String(!on));
+  on?filters.sev.delete(c.dataset.sev):filters.sev.add(c.dataset.sev);draw();}));
+document.getElementById('showSup').addEventListener('change',e=>{filters.showSup=e.target.checked;draw();});
+
+// 시작: 임베드 데이터가 있으면 렌더, 없으면 드롭존
+if(DATA){ render(DATA); } else { drop.classList.add('show'); }
+</script>
+</body>
+</html>

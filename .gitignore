@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 # unused vendored css (PicoCSS dependency was dropped)
 data/pico.min.css
+# runner artifacts (generated results + cloned target repos)
+out/
+targets/
