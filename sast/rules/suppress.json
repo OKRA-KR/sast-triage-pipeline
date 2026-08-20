@@ -13,10 +13,15 @@
     "path-traversal": "high",
     "xxe": "high",
     "xss": "high",
+    "prototype-pollution": "high",
+    "access-control": "high",
     "weak-crypto": "medium",
-    "insecure-randomness": "medium",
+    "insecure-randomness": "low",
     "open-redirect": "medium",
+    "redos": "medium",
+    "weak-sanitization": "medium",
     "iac-misconfig": "medium",
+    "missing-anti-automation": "low",
     "timing-attack": "low",
     "info-disclosure": "low",
     "ci-hardening": "low",
@@ -33,7 +38,10 @@
     {"pattern": "\\.(md|markdown|rst|txt)$", "reason": "문서 파일"}
   ],
 
-  "rule_suppress": [],
+  "rule_suppress": [
+    {"rule": "^node_username$", "reason": "취약점 클래스가 아님 — username 사용 표시(njsscan 정보성)"},
+    {"rule": "^node_timing_attack$", "reason": "njsscan 타이밍 룰 오탐 다발(프론트 검증기 등 비보안 비교)"}
+  ],
 
   "downgrade": [
     {"category": "iac-misconfig", "code_contains": "\"public\"", "to_severity": "info",

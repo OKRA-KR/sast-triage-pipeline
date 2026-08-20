@@ -17,8 +17,11 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 TARGETS="$ROOT/targets"; OUTBASE="$ROOT/out"
 mkdir -p "$TARGETS" "$OUTBASE"
 
-ARG="${1:-}"
-if [ -z "$ARG" ]; then echo "사용법: ./sast-run.sh <경로|gitURL|owner/repo|폴더명>"; exit 1; fi
+ARG="${1:-}"; DEEP=""
+for a in "$@"; do [ "$a" = "--deep" ] && DEEP=1; done
+[ "$ARG" = "--deep" ] && ARG="${2:-}"
+if [ -z "$ARG" ]; then echo "사용법: ./sast-run.sh <경로|gitURL|owner/repo|폴더명> [--deep]"; exit 1; fi
+if [ -n "$DEEP" ]; then export SAST_DEEP=1 SAST_CODEQL_CACHE=1; echo "[*] deep 모드: CodeQL(taint) 포함"; fi
 
 # 대상 해석 -> 로컬 경로 TARGET + 이름 NAME
 if [ -d "$ARG" ]; then

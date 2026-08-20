@@ -7,9 +7,14 @@ Semgrep 룰 엔진 + 데이터 기반 오탐 억제 + 고정 스키마 결과 + 
 
 ```bash
 # WSL/Kali (semgrep 은 pipx install semgrep)
-./sast-run.sh <대상>
+./sast-run.sh <대상>            # 기본: Semgrep (빠름, 오프라인)
+./sast-run.sh <대상> --deep     # + CodeQL taint/dataflow (느림, CodeQL CLI 필요)
 #   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명
 ```
+
+**엔진 조합**: 기본은 Semgrep(패턴, 빠름). `--deep`은 CodeQL(taint 기반)을 더해 Semgrep이
+못 보는 흐름 취약점(레이트리밋 부재·경로/프로토타입 오염·정보 노출 등)을 잡는다.
+CodeQL CLI 위치는 `CODEQL_HOME` 또는 PATH, 없으면 `~/codeql`.
 
 또는 Windows에서 `sast-run.bat` 더블클릭 → 대상 입력.
 
@@ -22,8 +27,8 @@ Semgrep 룰 엔진 + 데이터 기반 오탐 억제 + 고정 스키마 결과 + 
 sast/                     코어 (stdlib 전용, 오프라인)
   engines/
     __init__.py           엔진 레지스트리 + run_all (fingerprint 로 dedup 병합)
-    semgrep_engine.py     Semgrep 어댑터 → 통합 finding
-    (codeql_engine.py)    ← 나중에 여기 추가만 하면 자동 병합
+    semgrep_engine.py     Semgrep 어댑터 (기본)
+    codeql_engine.py      CodeQL 어댑터 (--deep, taint/dataflow)
   rules/
     suppress.json         오탐 억제/심각도 룰 라이브러리 (데이터 — 코드 수정 없이 확장)
   schema.py               통합 finding 스키마 + categorize/fingerprint

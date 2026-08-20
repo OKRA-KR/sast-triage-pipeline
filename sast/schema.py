@@ -14,11 +14,17 @@ def categorize(rule_id, cwe):
     r = (rule_id or "").lower()
     c = " ".join(cwe or []).lower()
     table = [
+        (("rate-limiting", "missing-rate"), "missing-anti-automation"),
         (("nosql", "node_nosqli"), "nosql-injection"),
         (("sql", "cwe-89"), "sql-injection"),
-        (("eval", "code-string-concat", "cwe-95"), "code-injection"),
+        (("eval", "code-string-concat", "cwe-95", "code-injection"), "code-injection"),
         (("command", "shell", "cwe-78"), "command-injection"),
-        (("traversal", "sendfile", "cwe-73", "cwe-22"), "path-traversal"),
+        (("traversal", "sendfile", "path-injection", "cwe-73", "cwe-22"), "path-traversal"),
+        (("prototype", "property-injection"), "prototype-pollution"),
+        (("redos", "cwe-1333", "cwe-400"), "redos"),
+        (("stack-trace", "clear-text", "cleartext", "sensitive-get", "sensitive-log", "cwe-200", "cwe-209", "cwe-312", "cwe-532"), "info-disclosure"),
+        (("sanitization", "sanitiz"), "weak-sanitization"),
+        (("controlled-bypass", "access-control", "missing-token-validation"), "access-control"),
         (("insecure_random", "random_generator", "cwe-330", "cwe-338"), "insecure-randomness"),
         (("md5", "sha1", "weak", "node_password", "cwe-327", "cwe-328", "cwe-916"), "weak-crypto"),
         (("timing", "cwe-208"), "timing-attack"),
@@ -38,9 +44,9 @@ def categorize(rule_id, cwe):
     return "other"
 
 def fingerprint(rule, file, line, code):
-    """엔진 간 dedup + baseline diff 용 안정 지문."""
+    """엔진 간 dedup + baseline diff 용 안정 지문. (line 포함 — code 없는 엔진 대응)"""
     norm = re.sub(r"\s+", "", code or "")[:200]
-    h = hashlib.sha1(f"{rule}|{file}|{norm}".encode()).hexdigest()[:12]
+    h = hashlib.sha1(f"{rule}|{file}|{line}|{norm}".encode()).hexdigest()[:12]
     return h
 
 def new_finding(**kw):
