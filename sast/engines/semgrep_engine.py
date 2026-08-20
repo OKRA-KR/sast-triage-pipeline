@@ -3,7 +3,8 @@ import json, os, shutil, subprocess
 from ..schema import categorize, fingerprint, new_finding, SEMGREP_SEV
 
 NAME = "semgrep"
-CONFIGS = ["p/owasp-top-ten", "p/javascript", "p/typescript", "p/python", "p/secrets"]
+CONFIGS = ["p/owasp-top-ten", "p/javascript", "p/typescript", "p/python",
+           "p/java", "p/secrets"]
 
 def available():
     return shutil.which("semgrep") is not None
