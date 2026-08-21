@@ -8,6 +8,7 @@ CodeQL CLI 위치: 환경변수 CODEQL_HOME 우선, 없으면 PATH, 없으면 ~/
 """
 import json, os, shutil, subprocess, glob, tempfile
 from ..schema import categorize, fingerprint, new_finding
+from .. import env
 
 NAME = "codeql"
 
@@ -26,11 +27,8 @@ def _cli():
     home = os.environ.get("CODEQL_HOME")
     if home and os.path.exists(os.path.join(home, "codeql")):
         return os.path.join(home, "codeql")
-    w = shutil.which("codeql")
-    if w: return w
-    for p in (os.path.expanduser("~/codeql/codeql"), "/home/kali/codeql/codeql"):
-        if os.path.exists(p): return p
-    return None
+    return env.tool_path("codeql", extra_dirs=(
+        os.path.expanduser("~/codeql/codeql"), "/home/kali/codeql/codeql"))
 
 def available():
     return _cli() is not None

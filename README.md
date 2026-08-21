@@ -1,7 +1,30 @@
-# SAST — repo-무관 모듈형 스캐너 (오프라인)
+# SAST+DAST — repo-무관 계층형 스캐너 (폐쇄망 우선)
 
-Semgrep 룰 엔진 + 데이터 기반 오탐 억제 + 고정 스키마 결과 + 자체완결 대시보드.
-**폐쇄망 우선**: 코어는 stdlib만, LLM 불필요. CodeQL 등 엔진을 끼울 슬롯 준비됨.
+**여러 현장(인가/폐쇄 환경)에 반입해 쓰는 범용 도구.** 소스를 떨어뜨리면 SAST, 라이브 URL 을 주면 블랙박스.
+
+## 아키텍처 (2 트랙 · 3 계층)
+
+```
+Track A (Repo 있음)  → SAST
+  1계층 [오프라인·폐쇄망 baseline]  룰 4엔진(semgrep·secrets·sca·codeql) + 오프라인 트리아지(suppress/crossval)
+  2계층 [개방망 전용·외부통신]      LLM 트리아지 — 오탐/정탐 판별·근거
+  3계층 [개방망 전용·외부통신]      LLM 심화 — 공격구문(PoC)·공격포인트·조치 생성
+Track B (Repo 없음)  → 블랙박스     라이브 URL 엔드포인트 식별 → 공격 가능 포인트 (stdlib, LLM 불필요)
+```
+
+**환경 게이팅**: 기본 **폐쇄망(offline)** → 1계층만(외부통신 0). `--online`(또는 `SAST_ONLINE=1`) +
+LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망에선 LLM 계층이 아예 실행되지 않음.
+
+```bash
+./sast-run.sh <대상>                         # 폐쇄망: 1계층만
+./sast-run.sh <대상> --deep                  # + CodeQL taint
+./sast-run.sh <대상> --deep --verify <URL>   # + 블랙박스(라이브 점검)
+./sast-run.sh <대상> --deep --online         # 개방망: 2·3계층(LLM) 활성화 (SAST_LLM_KEY 필요)
+#   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명   (대상 생략 + --verify = 블랙박스만)
+```
+
+LLM 계층 설정: `SAST_LLM_KEY`(필수), `SAST_LLM_ENDPOINT`(기본 Anthropic), `SAST_LLM_MODEL`(기본 claude-opus-5).
+엔드포인트/모델 교체로 사내 게이트웨이·다른 제공자 연결. stdlib urllib 만 사용(zero-dep 유지).
 
 ## 빠른 사용
 
@@ -43,20 +66,24 @@ CVSS 기반 심각도, 수정본 버전, CVE 태그 포함. CLI 위치: `OSV_SCA
 결과: `out/<name>/results.json` + `out/<name>/index.html`(더블클릭, 오프라인).
 다른 repo 결과는 `dashboard.template.html`에 `results.json`을 **드래그드롭**해서 봄.
 
-## 계층 (기본 on, 개별 off 가능)
+## 계층·트랙 요약
 
-| 계층 | 역할 | 기본 | 끄기 |
-|---|---|---|---|
-| 1계층 | 룰 스캔 (semgrep·codeql·secrets·sca) | on | 엔진별 `SAST_NO_SECRETS`/`SAST_NO_SCA`, `--deep` 로 codeql |
-| 2계층 | 오프라인 트리아지 (suppress·심각도·교차검증) | on | `--no-triage` / `SAST_NO_TRIAGE=1` |
-| 3계층 | 동적검증·DAST 브릿지 (라이브 URL) | URL 있을 때 on | `--verify <URL>` 로 켬 / `SAST_NO_VERIFY=1` 로 끔 |
+| 구분 | 역할 | 외부통신 | 기본 | 켜기/끄기 |
+|---|---|---|---|---|
+| **1계층** | 룰 4엔진 + 오프라인 트리아지(suppress/crossval) | ✗ (폐쇄망 OK) | on | 엔진별 `SAST_NO_*`, `--deep`(codeql), `--no-triage` |
+| **2계층** | LLM 트리아지 (오탐/정탐 판별) | ✓ | off | `--online` + `SAST_LLM_KEY` |
+| **3계층** | LLM 심화 (PoC/공격포인트/조치) | ✓ | off | `--online` + `SAST_LLM_KEY` |
+| **블랙박스**(Track B) | 라이브 URL 엔드포인트→공격포인트 | ✗ (내부망) | URL 있을 때 | `--verify <URL>` / `SAST_NO_VERIFY=1` |
 
-3계층은 라이브 앱 URL 이 있을 때만 켜진다(GET 전용, 안전). 보안헤더 미설정·민감경로 노출(actuator/env·git 등)을
-시그니처로 확증하고, 정적 finding 과 라이브 헤더를 **교차연계**(확증/반증)해 `dynamic` 필드를 채운다.
-심화 능동 확증(SQLi PoC 재현 등)은 확장 슬롯. LLM 트리아지는 폐쇄망 목표상 기본 미탑재(온라인 옵션 슬롯).
+- **폐쇄망**: 기본값이 offline 이라 2·3계층이 실행조차 안 됨 → 1계층(+선택 블랙박스)만.
+- **개방망**: `--online` + LLM 키가 있어야 2·3계층이 돈다. 하나라도 없으면 자동 건너뜀(안전).
+- 블랙박스는 LLM 불필요 — 소스가 없거나(Track B) SAST 와 병행해 라이브 확증에 쓴다(GET 전용, 시그니처로 오탐 억제).
 
 ```bash
+# 폐쇄망 SAST + 라이브 블랙박스
 ./sast-run.sh WebGoat/WebGoat --deep --verify http://localhost:8080/WebGoat
+# 개방망 SAST 1~3계층
+SAST_LLM_KEY=... ./sast-run.sh WebGoat/WebGoat --deep --online
 ```
 
 ## 폐쇄망 오프라인 (semgrep 룰 번들)
@@ -87,12 +114,16 @@ sast/                     코어 (stdlib 전용, 오프라인)
   rules/
     suppress.json         오탐 억제/심각도/교차검증 룰 라이브러리 (데이터 — 코드 수정 없이 확장)
     secrets_patterns.json 중요정보 탐지 패턴 (데이터 — 컴플라이언스 태그 포함)
-  schema.py               통합 finding 스키마 + categorize/fingerprint
-  triage.py               2계층: suppress.json 적용(억제 + 심각도, LLM 불필요)
-  crossval.py             2계층: 엔진 교차검증(패턴 엔진 오탐을 CodeQL taint 로 정정)
-  dynamic.py              3계층: 동적검증/DAST 브릿지(라이브 URL, GET 전용)
+  schema.py               통합 finding 스키마 + categorize/group/fingerprint
+  env.py                  환경 판별(폐쇄망/개방망) + 도구 discovery
+  triage.py               1계층: suppress.json 적용(억제 + 심각도, 오프라인)
+  crossval.py             1계층: 엔진 교차검증(패턴 엔진 오탐을 CodeQL taint 로 정정)
+  llm.py                  LLM 클라이언트(stdlib urllib, Anthropic 기본, 교체 가능)
+  layer2.py               2계층: LLM 트리아지 (개방망 전용)
+  layer3.py               3계층: LLM 심화 — PoC/공격포인트/조치 (개방망 전용)
+  blackbox.py             Track B: 라이브 URL 엔드포인트→공격포인트 (LLM 불필요)
   report.py               results.json(sast-results/2) + 대시보드 생성
-  cli.py                  python3 -m sast scan <target> --out <dir>
+  cli.py                  python3 -m sast scan <target> --out <dir> [--online] [--verify URL]
 dashboard.template.html   넓은(1400px) 자체완결 뷰어
 sast-run.sh / .bat        실행자 트리거 러너 (clone→scan)
 out/ , targets/           생성물 / 클론 대상 (git 제외)

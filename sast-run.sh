@@ -17,18 +17,19 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 TARGETS="$ROOT/targets"; OUTBASE="$ROOT/out"
 mkdir -p "$TARGETS" "$OUTBASE"
 
-ARG=""; DEEP=""; VERIFY=""
-# 옵션 파싱: --deep, --verify <URL>, 그 외 첫 비옵션은 대상
+ARG=""; DEEP=""; VERIFY=""; ONLINE=""
+# 옵션 파싱: --deep, --online, --verify <URL>, 그 외 첫 비옵션은 대상
 prev=""
 for a in "$@"; do
   if [ "$prev" = "--verify" ]; then VERIFY="$a"; prev=""; continue; fi
   case "$a" in
     --deep) DEEP=1 ;;
+    --online) ONLINE=1 ;;
     --verify) prev="--verify" ;;
     *) [ -z "$ARG" ] && ARG="$a" ;;
   esac
 done
-if [ -z "$ARG" ]; then echo "사용법: ./sast-run.sh <경로|gitURL|owner/repo|폴더명> [--deep] [--verify <URL>]"; exit 1; fi
+if [ -z "$ARG" ]; then echo "사용법: ./sast-run.sh <경로|gitURL|owner/repo|폴더명> [--deep] [--online] [--verify <URL>]"; exit 1; fi
 if [ -n "$DEEP" ]; then export SAST_DEEP=1 SAST_CODEQL_CACHE=1; echo "[*] deep 모드: CodeQL(taint) 포함"; fi
 
 # 대상 해석 -> 로컬 경로 TARGET + 이름 NAME
@@ -55,8 +56,10 @@ fi
 OUT="$OUTBASE/$NAME"
 echo "[*] 대상: $TARGET"
 echo "[*] 출력: $OUT"
-VERIFY_ARG=""; [ -n "$VERIFY" ] && VERIFY_ARG="--verify $VERIFY" && echo "[*] 3계층 동적검증 대상: $VERIFY"
-( cd "$ROOT" && python3 -m sast scan "$TARGET" --out "$OUT" --name "$NAME" $VERIFY_ARG )
+EXTRA=""
+[ -n "$VERIFY" ] && EXTRA="$EXTRA --verify $VERIFY" && echo "[*] 블랙박스 점검 대상: $VERIFY"
+[ -n "$ONLINE" ] && EXTRA="$EXTRA --online" && echo "[*] 개방망 모드: 2·3계층(LLM) 활성화 시도"
+( cd "$ROOT" && python3 -m sast scan "$TARGET" --out "$OUT" --name "$NAME" $EXTRA )
 
 echo
 echo "완료. 대시보드를 브라우저로 여세요:"

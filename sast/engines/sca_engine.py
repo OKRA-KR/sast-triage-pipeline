@@ -10,6 +10,7 @@ CLI 위치: 환경변수 OSV_SCANNER > PATH > ~/osv-scanner > /home/kali/osv-sca
 """
 import json, os, shutil, subprocess
 from ..schema import fingerprint, new_finding
+from .. import env
 
 NAME = "sca"
 
@@ -27,11 +28,8 @@ GHSA_SEV = {"CRITICAL": "critical", "HIGH": "high", "MODERATE": "medium", "LOW":
 
 
 def _cli():
-    for p in (os.environ.get("OSV_SCANNER"), shutil.which("osv-scanner"),
-              os.path.expanduser("~/osv-scanner"), "/home/kali/osv-scanner"):
-        if p and os.path.exists(p):
-            return p
-    return None
+    return env.tool_path("osv-scanner", env_var="OSV_SCANNER",
+                         extra_dirs=("/home/kali/osv-scanner",))
 
 
 def available():
