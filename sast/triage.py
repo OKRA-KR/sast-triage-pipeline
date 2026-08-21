@@ -15,8 +15,9 @@ def apply(findings, rules=None):
     downs = rules.get("downgrade", [])
 
     for f in findings:
-        # 1) 카테고리 기반 기준 심각도
-        f["severity"] = sev_by_cat.get(f["category"], f["severity"])
+        # 1) 카테고리 기반 기준 심각도 (엔진이 sev_lock 하면 패턴별 심각도 유지)
+        if not f.get("sev_lock"):
+            f["severity"] = sev_by_cat.get(f["category"], f["severity"])
 
         # 2) 억제 (경로/룰)
         reason = None

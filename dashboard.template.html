@@ -82,6 +82,7 @@ tr.detail td{padding:0;background:var(--surface-2);border-bottom:1px solid var(-
 pre.code{margin:0;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:11px 12px;overflow-x:auto;font-size:11.5px;line-height:1.6;color:#cdd7e6;}
 .kv{margin-bottom:10px;font-size:13px;}.kv .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
 .tag{font-size:10px;font-family:"IBM Plex Mono",monospace;padding:2px 6px;border-radius:5px;background:var(--surface-3);color:var(--ink-soft);}
+.tag.comp{background:var(--med-bg);color:var(--med);}
 .note{border-left:3px solid var(--warn);background:var(--warn-bg);padding:7px 10px;border-radius:0 6px 6px 0;font-size:12px;}
 .count{font-size:12px;color:var(--ink-soft);margin:0 0 8px;}
 /* drop zone */
@@ -153,7 +154,7 @@ const CATKO = {
   "redos":"ReDoS","weak-sanitization":"약한 정화","iac-misconfig":"IaC 설정오류",
   "missing-anti-automation":"레이트리밋 부재","timing-attack":"타이밍 공격","info-disclosure":"정보 노출",
   "ci-hardening":"CI 하드닝","supply-chain":"공급망","csrf":"CSRF","log-injection":"로그 인젝션",
-  "insecure-cookie":"취약한 쿠키","other":"기타"};
+  "insecure-cookie":"취약한 쿠키","sensitive-data":"중요정보/개인정보","other":"기타"};
 let RESULTS=null, filters={sev:new Set(),q:"",showSup:false}, openCats=new Set();
 
 function loadFile(file){
@@ -205,7 +206,7 @@ function findingRows(f){
   const sup=f.suppressed?`<div class="kv"><h5>억제 사유</h5><div class="note">오탐 억제: ${esc(f.suppress_reason)}</div></div>`:'';
   det.innerHTML=`<td colspan="5"><div class="detail-inner">
     <div><h5>코드 — ${esc(f.file)}:${f.line}</h5><pre class="code">${esc(f.code||'(컨텍스트 없음)')}</pre>
-      <div class="tags">${(f.cwe||[]).map(c=>`<span class="tag">${esc(c.split(':')[0])}</span>`).join('')}${(f.owasp||[]).map(o=>`<span class="tag">${esc(o.split(' - ')[0])}</span>`).join('')}</div></div>
+      <div class="tags">${(f.cwe||[]).map(c=>`<span class="tag">${esc(c.split(':')[0])}</span>`).join('')}${(f.owasp||[]).map(o=>`<span class="tag">${esc(o.split(' - ')[0])}</span>`).join('')}${(f.compliance||[]).map(c=>`<span class="tag comp">${esc(c)}</span>`).join('')}</div></div>
     <div>${f.message?`<div class="kv"><h5>룰 메시지</h5>${esc(f.message)}</div>`:''}
       ${f.rationale?`<div class="kv"><h5>판정 근거</h5>${esc(f.rationale)}</div>`:''}
       ${f.evidence?`<div class="kv"><h5>증거</h5><code>${esc(f.evidence)}</code></div>`:''}

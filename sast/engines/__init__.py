@@ -1,10 +1,13 @@
 """엔진 레지스트리 — 여기 등록하면 파이프라인이 자동으로 돌리고 결과를 병합한다.
 CodeQL 등 새 엔진은 같은 인터페이스(available/run→findings)로 추가만 하면 됨."""
 import os
-from . import semgrep_engine
+from . import semgrep_engine, secrets_engine
 
-# 기본은 semgrep(빠름). SAST_DEEP=1 이면 CodeQL(taint, 느림) 추가.
+# 기본: semgrep(패턴) + secrets-scan(평문 중요정보, stdlib 오프라인).
+# SAST_DEEP=1 이면 CodeQL(taint, 느림) 추가. SAST_NO_SECRETS=1 이면 시크릿 스캐너 끔.
 ENGINES = [semgrep_engine]
+if not os.environ.get("SAST_NO_SECRETS"):
+    ENGINES.append(secrets_engine)
 if os.environ.get("SAST_DEEP"):
     from . import codeql_engine
     ENGINES.append(codeql_engine)

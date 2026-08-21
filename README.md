@@ -18,6 +18,15 @@ Semgrep 룰 엔진 + 데이터 기반 오탐 억제 + 고정 스키마 결과 + 
 CodeQL CLI 위치는 `CODEQL_HOME` 또는 PATH, 없으면 `~/codeql`. DB 는 임시 fs 에 생성 후 삭제,
 SARIF 만 `out/<name>/codeql.sarif` 에 남는다(`CODEQL_DB_DIR`, `CODEQL_RAM` 로 조정).
 
+**중요정보 스캐너(secrets-scan)**: 기본 내장 엔진(stdlib 정규식, 오프라인, 외부툴 불필요).
+평문 시크릿·자격증명·규제 개인정보를 탐지한다 — GitHub PAT·AWS키·Google/Slack/Stripe 키,
+개인키(PEM), JWT, DB 접속 URI(계정:비밀번호)·JDBC 비번, 하드코딩 비밀번호, 그리고
+**국내외 컴플라이언스 중요정보**: 주민등록번호(체크섬 검증)·운전면허·여권번호(개인정보보호법
+고유식별정보), 신용카드번호(Luhn 검증, PCI-DSS), US-SSN 등. 패턴은 `rules/secrets_patterns.json`
+(데이터 주도, 컴플라이언스 태그 포함). 오탐 억제: 카드/주민번호 유효성 검증 + 플레이스홀더·`process.env`
+제외. 탐지값은 **마스킹**해서 표시(평문 노출 방지). 끄기: `SAST_NO_SECRETS=1`, 저위험 패턴(전화/이메일)
+켜기: `SAST_SECRETS_ALL=1`.
+
 **교차검증(crossval)**: `--deep` 일 때 패턴 엔진(njsscan)의 오탐을 CodeQL taint 로 정정한다.
 예) njsscan 의 `node_nosqli` 는 흐름 분석 없이 패턴만 봐서 Sequelize 파라미터라이즈드 쿼리까지
 오탐한다 → 같은 파일에 CodeQL taint 확증이 없으면 `오탐 추정(교차)`으로 강등, 있으면 2엔진 합의(신뢰↑).
@@ -35,9 +44,11 @@ sast/                     코어 (stdlib 전용, 오프라인)
   engines/
     __init__.py           엔진 레지스트리 + run_all (fingerprint 로 dedup 병합)
     semgrep_engine.py     Semgrep 어댑터 (기본)
+    secrets_engine.py     중요정보 스캐너 (기본, stdlib 정규식 — 시크릿/개인정보)
     codeql_engine.py      CodeQL 어댑터 (--deep, taint/dataflow)
   rules/
     suppress.json         오탐 억제/심각도/교차검증 룰 라이브러리 (데이터 — 코드 수정 없이 확장)
+    secrets_patterns.json 중요정보 탐지 패턴 (데이터 — 컴플라이언스 태그 포함)
   schema.py               통합 finding 스키마 + categorize/fingerprint
   triage.py               suppress.json 적용: 억제 + 심각도 (LLM 불필요)
   crossval.py             엔진 교차검증: 패턴 엔진 오탐을 CodeQL taint 로 정정

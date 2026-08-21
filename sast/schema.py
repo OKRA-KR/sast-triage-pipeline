@@ -57,8 +57,8 @@ def new_finding(**kw):
     base = dict(
         id="", fingerprint="", engines=[], rule="", full_rule="", pack="", category="other",
         severity="low", verdict="needs_review", confidence=0.0,
-        file="", line=0, endline=0, cwe=[], owasp=[], code="", message="",
-        rationale="", evidence="", fix="", poc="", reachable="unknown",
+        file="", line=0, endline=0, cwe=[], owasp=[], compliance=[], code="", message="",
+        rationale="", evidence="", fix="", poc="", reachable="unknown", sev_lock=False,
         source="SAST", dynamic=None, corroborated=None, suppressed=False, suppress_reason="",
     )
     base.update(kw)

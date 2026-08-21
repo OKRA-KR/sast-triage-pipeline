@@ -10,6 +10,7 @@
     "ssti": "critical",
     "deserialization": "critical",
     "hardcoded-secret": "high",
+    "sensitive-data": "high",
     "path-traversal": "high",
     "xxe": "high",
     "xss": "high",
@@ -33,6 +34,7 @@
 
   "path_suppress": [
     {"pattern": "(^|/)(test|tests|__tests__|spec|specs)/", "reason": "테스트 코드"},
+    {"pattern": "\\.(spec|test|e2e|stories)\\.[a-z0-9]+$", "reason": "테스트/스토리 파일(.spec/.test/.e2e)"},
     {"pattern": "(^|/)(examples?|samples?|fixtures?|codefixes|mocks?)/", "reason": "예제/픽스처(비-런타임)"},
     {"pattern": "_correct\\.[a-z0-9]+$", "reason": "참조-정답 파일"},
     {"pattern": "\\.(min|bundle)\\.(js|css)$", "reason": "빌드 산출물"},
