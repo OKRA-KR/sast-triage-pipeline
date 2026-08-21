@@ -114,10 +114,12 @@ sast/                     코어 (stdlib 전용, 오프라인)
   rules/
     suppress.json         오탐 억제/심각도/교차검증 룰 라이브러리 (데이터 — 코드 수정 없이 확장)
     secrets_patterns.json 중요정보 탐지 패턴 (데이터 — 컴플라이언스 태그 포함)
+    attack_playbook.json  카테고리별 공격구문/조치 (데이터 — ctf-web 스킬에서 증류)
   schema.py               통합 finding 스키마 + categorize/group/fingerprint
   env.py                  환경 판별(폐쇄망/개방망) + 도구 discovery
   triage.py               1계층: suppress.json 적용(억제 + 심각도, 오프라인)
   crossval.py             1계층: 엔진 교차검증(패턴 엔진 오탐을 CodeQL taint 로 정정)
+  playbook.py             1계층: 공격 플레이북 enrichment(카테고리별 공격구문/조치, 오프라인)
   llm.py                  LLM 클라이언트(stdlib urllib, Anthropic 기본, 교체 가능)
   layer2.py               2계층: LLM 트리아지 (개방망 전용)
   layer3.py               3계층: LLM 심화 — PoC/공격포인트/조치 (개방망 전용)

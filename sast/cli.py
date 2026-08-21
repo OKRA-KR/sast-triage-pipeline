@@ -8,7 +8,7 @@ Track B (Repo 없음)  → 블랙박스: 라이브 URL 엔드포인트 식별 �
 """
 import argparse, os, sys
 from .engines import run_all
-from . import triage, crossval, layer2, layer3, blackbox, report, env
+from . import triage, crossval, playbook, layer2, layer3, blackbox, report, env
 
 
 def cmd_scan(a):
@@ -41,18 +41,14 @@ def cmd_scan(a):
             rules = triage.load_rules()
             triage.apply(findings, rules)
             crossval.apply(findings, rules)
+            playbook.enrich(findings)     # ctf-web 기반 공격구문/조치(오프라인)
 
-        # 2계층: LLM 트리아지 (개방망 전용)
+        # 2·3계층: LLM 트리아지 + 심화 (LLM 있을 때만 — 로컬 LLM 이면 폐쇄망서도 가능)
         if env.layer2_enabled():
             findings = layer2.triage(findings); layers.append("llm-triage")
-        elif env.is_online():
-            print("[*] 2계층(LLM 트리아지) 건너뜀 — LLM 미설정(SAST_LLM_KEY)")
-        else:
-            print("[*] 2계층(LLM 트리아지) OFF — 폐쇄망")
-
-        # 3계층: LLM 심화 (개방망 전용)
-        if env.layer3_enabled():
             findings = layer3.deepen(findings); layers.append("llm-deepen")
+        else:
+            print("[*] 2·3계층(LLM) OFF — LLM 미설정 (SAST_LLM_ENDPOINT 또는 SAST_LLM_KEY)")
     elif not verify_url:
         print(f"[!] 대상 경로가 없고 --verify 도 없습니다: {a.target}"); return 2
 

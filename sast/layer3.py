@@ -16,16 +16,19 @@ SYSTEM = (
     '[{"id":"F001","poc":"공격구문/재현절차","attack_point":"엔드포인트/파라미터","fix":"조치방안"}]'
 )
 
-BATCH = 8
+BATCH = 3
 MAX_ITEMS = 40   # 비용 상한: 고위험 상위 N 건만
 
 
 def _payload(f):
-    return {
+    p = {
         "id": f["id"], "category": f["category"], "severity": f["severity"],
         "rule": f["rule"], "file": f"{f['file']}:{f['line']}",
         "message": (f.get("message") or "")[:300], "code": (f.get("code") or "")[:800],
     }
+    if f.get("poc"):   # 플레이북(ctf-web) 근거 — 이걸 코드에 맞게 정밀화하도록 유도
+        p["reference_technique"] = f["poc"][:400]
+    return p
 
 
 def deepen(findings):
