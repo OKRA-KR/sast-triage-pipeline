@@ -24,6 +24,7 @@ GROUP_MAP = {
     "hardcoded-secret": "sensitive-exposure", "sensitive-data": "sensitive-exposure",
     "info-disclosure": "info-disclosure", "ci-hardening": "info-disclosure",
     "iac-misconfig": "misconfiguration", "insecure-cookie": "misconfiguration",
+    "security-misconfig": "misconfiguration",
     "supply-chain": "vulnerable-component",
 }
 
@@ -35,6 +36,21 @@ def categorize(rule_id, cwe):
     c = " ".join(cwe or []).lower()
     table = [
         (("rate-limiting", "missing-rate"), "missing-anti-automation"),
+        # --- taint 엔진이 잡지만 그동안 'other'로 묻혔던 것들 (A안: 표면화) ---
+        (("request-forgery", "ssrf", "tainted-url-host", "cwe-918"), "ssrf"),
+        (("file-system-race", "toctou", "time-of-check", "cwe-367", "cwe-362"), "toctou"),
+        (("type-confusion", "parameter-tampering", "cwe-843"), "type-confusion"),
+        (("template-injection", "template-object", "expression-injection", "cwe-1336", "cwe-917"), "ssti"),
+        (("cors", "helmet", "header_nosniff", "x_powered_by", "frame_guard", "feature_policy",
+          "security-header", "cwe-346", "cwe-693"), "security-misconfig"),
+        (("session-fixation", "tainted-session", "logic_bypass", "logic-bypass",
+          "trust-boundary", "cwe-384", "cwe-501", "cwe-807"), "access-control"),
+        (("regex_dos", "regexp_dos", "cwe-185"), "redos"),
+        (("dependabot", "cooldown", "cwe-829", "cwe-1104"), "supply-chain"),
+        (("error_disclosure", "generic_error", "disclosure"), "info-disclosure"),
+        (("http-to-file", "cwe-912", "cwe-434"), "path-traversal"),
+        (("regexp-anchor", "missing-anchor"), "weak-sanitization"),
+        # --- 기존 분류 ---
         (("nosql", "node_nosqli"), "nosql-injection"),
         (("sql", "cwe-89"), "sql-injection"),
         (("eval", "code-string-concat", "cwe-95", "code-injection"), "code-injection"),

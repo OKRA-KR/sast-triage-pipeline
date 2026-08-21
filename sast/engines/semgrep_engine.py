@@ -30,6 +30,8 @@ def run(target, out_dir):
         rule = cid.split(".")[-1]
         pack = ".".join(cid.split(".")[:2])   # 룰 출처(계열) 추적용
         cwe = md.get("cwe") or []; owasp = md.get("owasp") or []
+        if isinstance(cwe, str): cwe = [cwe]        # njsscan 은 문자열로 줌 → 글자분해 방지
+        if isinstance(owasp, str): owasp = [owasp]
         ctx = ""
         try:
             L = open(os.path.join(target, path), encoding="utf-8", errors="replace").read().splitlines()
