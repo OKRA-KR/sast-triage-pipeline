@@ -17,20 +17,33 @@ def is_online():
 
 
 def llm_configured():
-    """LLM 트리아지용 설정(엔드포인트/키)이 있는가."""
+    """LLM(원격 키 또는 로컬 엔드포인트)이 설정돼 있는가."""
     return bool(os.environ.get("SAST_LLM_KEY") or os.environ.get("SAST_LLM_ENDPOINT"))
 
 
+def llm_is_local():
+    """로컬 LLM(폐쇄망서도 가능) 여부 — localhost 엔드포인트 + 원격키 없음."""
+    ep = os.environ.get("SAST_LLM_ENDPOINT", "")
+    return bool(ep) and ("localhost" in ep or "127.0.0.1" in ep) and not os.environ.get("SAST_LLM_KEY")
+
+
 def layer2_enabled():
-    return is_online() and llm_configured()
+    # LLM 만 있으면 됨. 로컬 LLM 이면 폐쇄망서도 가능. 원격 API 는 개방망 전제.
+    if os.environ.get("SAST_NO_LLM"):
+        return False
+    return llm_configured()
 
 
 def layer3_enabled():
-    return is_online() and llm_configured()
+    return layer2_enabled()
 
 
 def mode_label():
-    return "개방망(online)" if is_online() else "폐쇄망(offline)"
+    if llm_is_local():
+        return "폐쇄망+로컬LLM"
+    if is_online():
+        return "개방망(online)"
+    return "폐쇄망(offline)"
 
 
 def tool_path(name, env_var=None, extra_dirs=()):

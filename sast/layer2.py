@@ -4,8 +4,9 @@
 `env.layer2_enabled()`(online + LLM 설정) 일 때만 cli 가 호출한다. 미설정이면 아예 안 돎.
 결과: finding 의 verdict/confidence/rationale 를 갱신(dynamic 확증된 건은 건드리지 않음).
 """
-import json
+import json, os
 from . import llm
+from .schema import SEV_ORDER
 
 SYSTEM = (
     "당신은 애플리케이션 보안 진단 트리아지 전문가다. 정적분석(SAST) finding 목록을 받아 "
@@ -15,7 +16,7 @@ SYSTEM = (
     '[{"id":"F001","verdict":"true_positive|false_positive|needs_review","confidence":0.0~1.0,"rationale":"한 줄 근거"}]'
 )
 
-BATCH = 15
+BATCH = 5
 
 
 def _payload(f):
@@ -34,6 +35,10 @@ def triage(findings):
     targets = [f for f in findings if not f.get("suppressed")
                and (f.get("dynamic") or {}).get("status") != "confirmed"
                and f.get("verdict") in ("needs_review", "untriaged", None)]
+    targets.sort(key=lambda f: SEV_ORDER.get(f["severity"], 9))   # 심각도순(결정적)
+    lim = os.environ.get("SAST_TRIAGE_LIMIT")                      # 테스트용 상한
+    if lim:
+        targets = targets[:int(lim)]
     if not targets:
         return findings
     by_id = {f["id"]: f for f in findings}
