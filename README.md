@@ -43,6 +43,22 @@ CVSS 기반 심각도, 수정본 버전, CVE 태그 포함. CLI 위치: `OSV_SCA
 결과: `out/<name>/results.json` + `out/<name>/index.html`(더블클릭, 오프라인).
 다른 repo 결과는 `dashboard.template.html`에 `results.json`을 **드래그드롭**해서 봄.
 
+## 계층 (기본 on, 개별 off 가능)
+
+| 계층 | 역할 | 기본 | 끄기 |
+|---|---|---|---|
+| 1계층 | 룰 스캔 (semgrep·codeql·secrets·sca) | on | 엔진별 `SAST_NO_SECRETS`/`SAST_NO_SCA`, `--deep` 로 codeql |
+| 2계층 | 오프라인 트리아지 (suppress·심각도·교차검증) | on | `--no-triage` / `SAST_NO_TRIAGE=1` |
+| 3계층 | 동적검증·DAST 브릿지 (라이브 URL) | URL 있을 때 on | `--verify <URL>` 로 켬 / `SAST_NO_VERIFY=1` 로 끔 |
+
+3계층은 라이브 앱 URL 이 있을 때만 켜진다(GET 전용, 안전). 보안헤더 미설정·민감경로 노출(actuator/env·git 등)을
+시그니처로 확증하고, 정적 finding 과 라이브 헤더를 **교차연계**(확증/반증)해 `dynamic` 필드를 채운다.
+심화 능동 확증(SQLi PoC 재현 등)은 확장 슬롯. LLM 트리아지는 폐쇄망 목표상 기본 미탑재(온라인 옵션 슬롯).
+
+```bash
+./sast-run.sh WebGoat/WebGoat --deep --verify http://localhost:8080/WebGoat
+```
+
 ## 구조
 
 ```
@@ -57,8 +73,9 @@ sast/                     코어 (stdlib 전용, 오프라인)
     suppress.json         오탐 억제/심각도/교차검증 룰 라이브러리 (데이터 — 코드 수정 없이 확장)
     secrets_patterns.json 중요정보 탐지 패턴 (데이터 — 컴플라이언스 태그 포함)
   schema.py               통합 finding 스키마 + categorize/fingerprint
-  triage.py               suppress.json 적용: 억제 + 심각도 (LLM 불필요)
-  crossval.py             엔진 교차검증: 패턴 엔진 오탐을 CodeQL taint 로 정정
+  triage.py               2계층: suppress.json 적용(억제 + 심각도, LLM 불필요)
+  crossval.py             2계층: 엔진 교차검증(패턴 엔진 오탐을 CodeQL taint 로 정정)
+  dynamic.py              3계층: 동적검증/DAST 브릿지(라이브 URL, GET 전용)
   report.py               results.json(sast-results/2) + 대시보드 생성
   cli.py                  python3 -m sast scan <target> --out <dir>
 dashboard.template.html   넓은(1400px) 자체완결 뷰어
