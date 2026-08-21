@@ -1,6 +1,6 @@
 """결과 산출 — 고정 스키마 results.json + 자체완결 대시보드 index.html."""
 import json, os, datetime
-from .schema import SCHEMA
+from .schema import SCHEMA, group_of
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE = os.path.join(ROOT, "dashboard.template.html")
@@ -21,6 +21,8 @@ def summarize(findings):
 
 def build(name, target, engines, findings, out_dir, mode="layer1"):
     os.makedirs(out_dir, exist_ok=True)
+    for f in findings:                      # 세부 category → 분석기준 상위 그룹
+        f["group"] = group_of(f["category"])
     results = dict(
         meta=dict(target=name, source=target,
                   scanned_at=datetime.date.today().isoformat(),

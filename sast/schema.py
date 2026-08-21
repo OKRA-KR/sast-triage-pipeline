@@ -10,6 +10,26 @@ SEMGREP_SEV = {"ERROR": "high", "WARNING": "medium", "INFO": "low",
 DANGEROUS = {"sql-injection", "code-injection", "command-injection", "path-traversal",
              "hardcoded-secret", "deserialization", "ssti", "xxe"}
 
+# 세부 카테고리 → 분석기준 상위 그룹 (대시보드 상위 묶음용. 세부 category 는 그대로 유지).
+GROUP_MAP = {
+    "sql-injection": "injection", "nosql-injection": "injection", "command-injection": "injection",
+    "code-injection": "injection", "ssti": "injection", "xxe": "injection",
+    "log-injection": "injection", "prototype-pollution": "injection", "path-traversal": "injection",
+    "deserialization": "injection", "redos": "injection", "toctou": "injection",
+    "type-confusion": "injection",
+    "xss": "xss", "weak-sanitization": "xss",
+    "access-control": "broken-access", "csrf": "broken-access", "ssrf": "broken-access",
+    "open-redirect": "broken-access", "missing-anti-automation": "broken-access",
+    "weak-crypto": "crypto-failure", "insecure-randomness": "crypto-failure", "timing-attack": "crypto-failure",
+    "hardcoded-secret": "sensitive-exposure", "sensitive-data": "sensitive-exposure",
+    "info-disclosure": "info-disclosure", "ci-hardening": "info-disclosure",
+    "iac-misconfig": "misconfiguration", "insecure-cookie": "misconfiguration",
+    "supply-chain": "vulnerable-component",
+}
+
+def group_of(category):
+    return GROUP_MAP.get(category, "other")
+
 def categorize(rule_id, cwe):
     r = (rule_id or "").lower()
     c = " ".join(cwe or []).lower()
@@ -55,7 +75,7 @@ def fingerprint(rule, file, line, code):
 
 def new_finding(**kw):
     base = dict(
-        id="", fingerprint="", engines=[], rule="", full_rule="", pack="", category="other",
+        id="", fingerprint="", engines=[], rule="", full_rule="", pack="", category="other", group="other",
         severity="low", verdict="needs_review", confidence=0.0,
         file="", line=0, endline=0, cwe=[], owasp=[], compliance=[], code="", message="",
         rationale="", evidence="", fix="", poc="", reachable="unknown", sev_lock=False,

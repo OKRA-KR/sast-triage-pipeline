@@ -50,6 +50,7 @@ tbody tr.row:hover{background:var(--surface-2);}
 tbody td{padding:9px 12px;vertical-align:middle;}
 td.file{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-soft);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 td.rule{font-family:"IBM Plex Mono",monospace;font-size:12px;}
+.cattag{display:inline-block;font-family:"IBM Plex Sans KR",sans-serif;font-size:10.5px;font-weight:600;padding:1px 7px;margin-right:8px;border-radius:5px;background:var(--surface-3);color:var(--ink-soft);vertical-align:middle;}
 .pill{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;font-family:"IBM Plex Mono",monospace;white-space:nowrap;}
 .sev-critical{background:var(--crit-bg);color:var(--crit);}.sev-high{background:var(--high-bg);color:var(--high);}
 .sev-medium{background:var(--med-bg);color:var(--med);}.sev-low{background:var(--low-bg);color:var(--low);}
@@ -154,7 +155,26 @@ const CATKO = {
   "redos":"ReDoS","weak-sanitization":"약한 정화","iac-misconfig":"IaC 설정오류",
   "missing-anti-automation":"레이트리밋 부재","timing-attack":"타이밍 공격","info-disclosure":"정보 노출",
   "ci-hardening":"CI 하드닝","supply-chain":"공급망","csrf":"CSRF","log-injection":"로그 인젝션",
-  "insecure-cookie":"취약한 쿠키","sensitive-data":"중요정보/개인정보","other":"기타"};
+  "insecure-cookie":"취약한 쿠키","sensitive-data":"중요정보/개인정보","toctou":"시간/상태(TOCTOU)",
+  "ssrf":"SSRF","type-confusion":"타입 혼동","other":"기타"};
+// 세부 category → 분석기준 상위 그룹 (results.json 의 group 필드가 없을 때의 폴백)
+const GROUP={
+  "sql-injection":"injection","nosql-injection":"injection","command-injection":"injection",
+  "code-injection":"injection","ssti":"injection","xxe":"injection","log-injection":"injection",
+  "prototype-pollution":"injection","path-traversal":"injection","deserialization":"injection",
+  "redos":"injection","toctou":"injection","type-confusion":"injection",
+  "xss":"xss","weak-sanitization":"xss",
+  "access-control":"broken-access","csrf":"broken-access","ssrf":"broken-access",
+  "open-redirect":"broken-access","missing-anti-automation":"broken-access",
+  "weak-crypto":"crypto-failure","insecure-randomness":"crypto-failure","timing-attack":"crypto-failure",
+  "hardcoded-secret":"sensitive-exposure","sensitive-data":"sensitive-exposure",
+  "info-disclosure":"info-disclosure","ci-hardening":"info-disclosure",
+  "iac-misconfig":"misconfiguration","insecure-cookie":"misconfiguration",
+  "supply-chain":"vulnerable-component"};
+const GROUPKO={injection:"인젝션","xss":"크로스사이트 스크립팅(XSS)","broken-access":"접근통제·요청위조",
+  "crypto-failure":"암호화 취약","sensitive-exposure":"중요정보 노출","info-disclosure":"정보 노출",
+  "misconfiguration":"보안 설정 오류","vulnerable-component":"취약 컴포넌트","other":"기타"};
+const groupOf=f=>f.group||GROUP[f.category]||"other";
 let RESULTS=null, filters={sev:new Set(),q:"",showSup:false}, openCats=new Set();
 
 function loadFile(file){
@@ -197,7 +217,7 @@ function findingRows(f){
   tr.innerHTML=
     `<td><span class="pill sev-${f.severity}">${SEVKO[f.severity]||f.severity}</span></td>`+
     `<td><span class="pill vd-${f.verdict}">${VDKO[f.verdict]||f.verdict}</span>${f.corroborated===true?'<span class="xval" title="CodeQL taint 교차확증">⚑2엔진</span>':''}</td>`+
-    `<td class="rule">${esc(f.rule)}</td>`+
+    `<td class="rule"><span class="cattag">${esc(CATKO[f.category]||f.category)}</span>${esc(f.rule)}</td>`+
     `<td class="file" title="${esc(f.file)}:${f.line}">${esc(f.file)}:${f.line}</td>`+
     `<td class="src">${esc(f.source||'SAST')}</td>`;
   const det=document.createElement('tr'); det.className='detail'; det.hidden=true;
@@ -220,16 +240,16 @@ function draw(){
   const rows=document.getElementById('rows'); rows.innerHTML='';
   const total=(RESULTS.findings||[]).length;
   const vis=(RESULTS.findings||[]).filter(match);
-  // 카테고리별 그룹핑
+  // 분석기준 그룹으로 묶기 (세부 category 는 각 finding 에 라벨로 유지)
   const groups={};
-  for(const f of vis){ (groups[f.category]=groups[f.category]||[]).push(f); }
-  // 카테고리 정렬: 최고 심각도 우선 → 건수 많은 순
+  for(const f of vis){ const g=groupOf(f); (groups[g]=groups[g]||[]).push(f); }
+  // 그룹 정렬: 최고 심각도 우선 → 건수 많은 순
   const cats=Object.keys(groups).sort((a,b)=>{
     const sa=Math.min(...groups[a].map(f=>SEVORD[f.severity]));
     const sb=Math.min(...groups[b].map(f=>SEVORD[f.severity]));
     return sa-sb || groups[b].length-groups[a].length;
   });
-  document.getElementById('count').textContent=`${vis.length} / ${total}건 · ${cats.length}개 카테고리`;
+  document.getElementById('count').textContent=`${vis.length} / ${total}건 · ${cats.length}개 그룹`;
   const autoOpen=!!(filters.q||filters.sev.size); // 검색/필터 중엔 매칭 그룹 자동 펼침
   for(const cat of cats){
     const items=groups[cat].sort((a,b)=>SEVORD[a.severity]-SEVORD[b.severity]||a.file.localeCompare(b.file)||a.line-b.line);
@@ -241,7 +261,7 @@ function draw(){
     const badges=['critical','high','medium','low','info'].filter(s=>sc[s]).map(s=>`<span class="pill sev-${s}">${SEVKO[s]} ${sc[s]}</span>`).join(' ');
     gtr.innerHTML=`<td colspan="5"><div class="grp-row">
       <span class="chev">▶</span><span class="dot d-${maxsev}"></span>
-      <span class="cat-name">${esc(CATKO[cat]||cat)}</span>
+      <span class="cat-name">${esc(GROUPKO[cat]||cat)}</span>
       <span class="cat-slug">${esc(cat)}</span>
       <span class="cat-count">${items.length}건</span>
       <span class="cat-sevs">${badges}</span></div></td>`;
@@ -257,7 +277,7 @@ document.querySelectorAll('#sevchips .chip').forEach(c=>c.addEventListener('clic
   on?filters.sev.delete(c.dataset.sev):filters.sev.add(c.dataset.sev);draw();}));
 document.getElementById('showSup').addEventListener('change',e=>{filters.showSup=e.target.checked;draw();});
 document.getElementById('expandAll').addEventListener('click',()=>{
-  for(const f of (RESULTS.findings||[]).filter(match)) openCats.add(f.category); draw();});
+  for(const f of (RESULTS.findings||[]).filter(match)) openCats.add(groupOf(f)); draw();});
 document.getElementById('collapseAll').addEventListener('click',()=>{openCats.clear();draw();});
 
 // 시작: 임베드 데이터가 있으면 렌더, 없으면 드롭존
