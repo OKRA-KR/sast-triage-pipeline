@@ -32,6 +32,13 @@ def build(name, target, engines, findings, out_dir, mode="layer1"):
               indent=2, ensure_ascii=False)
     if os.path.exists(TEMPLATE):
         tpl = open(TEMPLATE, encoding="utf-8").read()
-        html = tpl.replace("/*__DATA__*/null", json.dumps(results, ensure_ascii=False))
+        html = tpl.replace("/*__DATA__*/null", _embed(results))
         open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8").write(html)
     return results
+
+def _embed(results):
+    """JSON 을 <script> 안에 안전하게 삽입. 코드 스니펫에 들어있는 </script>·<!-- 나
+    U+2028/2029(JS 문자열 깨짐)가 페이지를 부수지 않도록 이스케이프."""
+    s = json.dumps(results, ensure_ascii=False)
+    return (s.replace("<", "\\u003c").replace(">", "\\u003e")
+             .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
