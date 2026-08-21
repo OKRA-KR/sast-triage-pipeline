@@ -59,6 +59,22 @@ td.rule{font-family:"IBM Plex Mono",monospace;font-size:12px;}
 .xval{display:inline-block;font-size:10px;font-weight:700;padding:1px 5px;margin-left:6px;border-radius:5px;background:var(--crit-bg);color:var(--crit);font-family:"IBM Plex Mono",monospace;}
 .src{font-size:10.5px;font-family:"IBM Plex Mono",monospace;color:var(--ink-faint);}
 tr.sup{opacity:.5;}
+/* 카테고리 그룹 행 */
+tr.grp{cursor:pointer;background:var(--surface-2);border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2);}
+tr.grp:hover{background:var(--surface-3);}
+tr.grp td{padding:10px 12px;}
+.grp-row{display:flex;align-items:center;gap:10px;}
+.chev{display:inline-block;transition:transform .15s ease;color:var(--ink-faint);font-size:10px;width:12px;text-align:center;}
+tr.grp.open .chev{transform:rotate(90deg);}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none;}
+.dot.d-critical{background:var(--crit);}.dot.d-high{background:var(--high);}.dot.d-medium{background:var(--med);}.dot.d-low{background:var(--low);}.dot.d-info{background:var(--ink-faint);}
+.cat-name{font-weight:600;font-size:14.5px;letter-spacing:-.01em;}
+.cat-slug{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-faint);}
+.cat-count{font-size:12px;color:var(--ink-soft);font-variant-numeric:tabular-nums;}
+.cat-sevs{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap;}
+tr.frow td:first-child{padding-left:34px;}
+tr.frow{border-bottom:1px solid var(--line);cursor:pointer;}
+tr.frow:hover{background:var(--surface-2);}
 tr.detail td{padding:0;background:var(--surface-2);border-bottom:1px solid var(--line-2);}
 .detail-inner{padding:14px 16px;display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
 @media (max-width:900px){.detail-inner{grid-template-columns:1fr;}}
@@ -109,9 +125,13 @@ footer{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--line);font-si
     <label class="file">다른 결과 불러오기<input type="file" id="fileBtn" accept=".json"></label>
   </div>
   <p class="count" id="count"></p>
+  <div class="toolbar" style="margin-bottom:8px">
+    <span class="chip" id="expandAll" style="cursor:pointer">모두 펼치기</span>
+    <span class="chip" id="collapseAll" style="cursor:pointer">모두 접기</span>
+  </div>
   <div class="tablewrap">
     <table>
-      <thead><tr><th>심각도</th><th>판정</th><th>카테고리</th><th>룰</th><th>위치</th><th>출처</th></tr></thead>
+      <thead><tr><th style="width:110px">심각도</th><th style="width:130px">판정</th><th>룰</th><th>위치</th><th style="width:70px">출처</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
   </div>
@@ -124,7 +144,17 @@ const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&l
 const SEVORD = {critical:0,high:1,medium:2,low:3,info:4};
 const SEVKO = {critical:"크리티컬",high:"높음",medium:"중간",low:"낮음",info:"정보"};
 const VDKO = {true_positive:"실제 취약점",false_positive:"오탐",needs_review:"검토 필요",likely_fp:"오탐 추정(교차)",untriaged:"미분류"};
-let RESULTS=null, filters={sev:new Set(),q:"",showSup:false};
+const CATKO = {
+  "sql-injection":"SQL 인젝션","nosql-injection":"NoSQL 인젝션","code-injection":"코드 인젝션",
+  "command-injection":"명령 주입","path-traversal":"경로 조작","ssti":"서버 템플릿 주입",
+  "deserialization":"안전하지 않은 역직렬화","hardcoded-secret":"하드코딩 시크릿","xxe":"XXE",
+  "xss":"XSS","prototype-pollution":"프로토타입 오염","access-control":"접근제어 우회",
+  "weak-crypto":"약한 암호","insecure-randomness":"안전하지 않은 난수","open-redirect":"오픈 리다이렉트",
+  "redos":"ReDoS","weak-sanitization":"약한 정화","iac-misconfig":"IaC 설정오류",
+  "missing-anti-automation":"레이트리밋 부재","timing-attack":"타이밍 공격","info-disclosure":"정보 노출",
+  "ci-hardening":"CI 하드닝","supply-chain":"공급망","csrf":"CSRF","log-injection":"로그 인젝션",
+  "insecure-cookie":"취약한 쿠키","other":"기타"};
+let RESULTS=null, filters={sev:new Set(),q:"",showSup:false}, openCats=new Set();
 
 function loadFile(file){
   const r=new FileReader();
@@ -161,35 +191,63 @@ function match(f){
   if(filters.q){const h=(f.rule+' '+f.file+' '+f.category+' '+(f.message||'')+' '+(f.rationale||'')).toLowerCase();if(!h.includes(filters.q))return false;}
   return true;
 }
+function findingRows(f){
+  const tr=document.createElement('tr'); tr.className='frow'+(f.suppressed?' sup':'');
+  tr.innerHTML=
+    `<td><span class="pill sev-${f.severity}">${SEVKO[f.severity]||f.severity}</span></td>`+
+    `<td><span class="pill vd-${f.verdict}">${VDKO[f.verdict]||f.verdict}</span>${f.corroborated===true?'<span class="xval" title="CodeQL taint 교차확증">⚑2엔진</span>':''}</td>`+
+    `<td class="rule">${esc(f.rule)}</td>`+
+    `<td class="file" title="${esc(f.file)}:${f.line}">${esc(f.file)}:${f.line}</td>`+
+    `<td class="src">${esc(f.source||'SAST')}</td>`;
+  const det=document.createElement('tr'); det.className='detail'; det.hidden=true;
+  const dyn=f.dynamic?`<div class="kv"><h5>동적 검증</h5><div class="note">${esc(f.dynamic.status)} — ${esc(f.dynamic.evidence||'')}</div></div>`:'';
+  const poc=f.poc?`<h5>공격 구문</h5><pre class="code">${esc(f.poc)}</pre>`:'';
+  const sup=f.suppressed?`<div class="kv"><h5>억제 사유</h5><div class="note">오탐 억제: ${esc(f.suppress_reason)}</div></div>`:'';
+  det.innerHTML=`<td colspan="5"><div class="detail-inner">
+    <div><h5>코드 — ${esc(f.file)}:${f.line}</h5><pre class="code">${esc(f.code||'(컨텍스트 없음)')}</pre>
+      <div class="tags">${(f.cwe||[]).map(c=>`<span class="tag">${esc(c.split(':')[0])}</span>`).join('')}${(f.owasp||[]).map(o=>`<span class="tag">${esc(o.split(' - ')[0])}</span>`).join('')}</div></div>
+    <div>${f.message?`<div class="kv"><h5>룰 메시지</h5>${esc(f.message)}</div>`:''}
+      ${f.rationale?`<div class="kv"><h5>판정 근거</h5>${esc(f.rationale)}</div>`:''}
+      ${f.evidence?`<div class="kv"><h5>증거</h5><code>${esc(f.evidence)}</code></div>`:''}
+      ${poc}${dyn}${sup}
+      ${f.fix?`<div class="kv"><h5>수정 방안</h5>${esc(f.fix)}</div>`:''}</div>
+  </div></td>`;
+  tr.addEventListener('click',()=>det.hidden=!det.hidden);
+  return [tr,det];
+}
 function draw(){
   const rows=document.getElementById('rows'); rows.innerHTML='';
-  const list=[...(RESULTS.findings||[])].sort((a,b)=>SEVORD[a.severity]-SEVORD[b.severity]);
-  const vis=list.filter(match);
-  document.getElementById('count').textContent=`${vis.length} / ${list.length}건 표시`;
-  for(const f of vis){
-    const tr=document.createElement('tr'); tr.className='row'+(f.suppressed?' sup':'');
-    tr.innerHTML=
-      `<td><span class="pill sev-${f.severity}">${SEVKO[f.severity]||f.severity}</span></td>`+
-      `<td><span class="pill vd-${f.verdict}">${VDKO[f.verdict]||f.verdict}</span>${f.corroborated===true?'<span class="xval" title="CodeQL taint 교차확증">⚑2엔진</span>':''}</td>`+
-      `<td class="mono" style="font-size:12px">${esc(f.category)}</td>`+
-      `<td class="rule">${esc(f.rule)}</td>`+
-      `<td class="file" title="${esc(f.file)}:${f.line}">${esc(f.file)}:${f.line}</td>`+
-      `<td class="src">${esc(f.source||'SAST')}</td>`;
-    const det=document.createElement('tr'); det.className='detail'; det.hidden=true;
-    const dyn=f.dynamic?`<div class="kv"><h5>동적 검증</h5><div class="note">${esc(f.dynamic.status)} — ${esc(f.dynamic.evidence||'')}</div></div>`:'';
-    const poc=f.poc?`<h5>공격 구문</h5><pre class="code">${esc(f.poc)}</pre>`:'';
-    const sup=f.suppressed?`<div class="kv"><h5>억제 사유</h5><div class="note">오탐 억제: ${esc(f.suppress_reason)}</div></div>`:'';
-    det.innerHTML=`<td colspan="6"><div class="detail-inner">
-      <div><h5>코드 — ${esc(f.file)}:${f.line}</h5><pre class="code">${esc(f.code||'(컨텍스트 없음)')}</pre>
-        <div class="tags">${(f.cwe||[]).map(c=>`<span class="tag">${esc(c.split(':')[0])}</span>`).join('')}${(f.owasp||[]).map(o=>`<span class="tag">${esc(o.split(' - ')[0])}</span>`).join('')}</div></div>
-      <div>${f.message?`<div class="kv"><h5>룰 메시지</h5>${esc(f.message)}</div>`:''}
-        ${f.rationale?`<div class="kv"><h5>판정 근거</h5>${esc(f.rationale)}</div>`:''}
-        ${f.evidence?`<div class="kv"><h5>증거</h5><code>${esc(f.evidence)}</code></div>`:''}
-        ${poc}${dyn}${sup}
-        ${f.fix?`<div class="kv"><h5>수정 방안</h5>${esc(f.fix)}</div>`:''}</div>
-    </div></td>`;
-    tr.addEventListener('click',()=>det.hidden=!det.hidden);
-    rows.appendChild(tr); rows.appendChild(det);
+  const total=(RESULTS.findings||[]).length;
+  const vis=(RESULTS.findings||[]).filter(match);
+  // 카테고리별 그룹핑
+  const groups={};
+  for(const f of vis){ (groups[f.category]=groups[f.category]||[]).push(f); }
+  // 카테고리 정렬: 최고 심각도 우선 → 건수 많은 순
+  const cats=Object.keys(groups).sort((a,b)=>{
+    const sa=Math.min(...groups[a].map(f=>SEVORD[f.severity]));
+    const sb=Math.min(...groups[b].map(f=>SEVORD[f.severity]));
+    return sa-sb || groups[b].length-groups[a].length;
+  });
+  document.getElementById('count').textContent=`${vis.length} / ${total}건 · ${cats.length}개 카테고리`;
+  const autoOpen=!!(filters.q||filters.sev.size); // 검색/필터 중엔 매칭 그룹 자동 펼침
+  for(const cat of cats){
+    const items=groups[cat].sort((a,b)=>SEVORD[a.severity]-SEVORD[b.severity]||a.file.localeCompare(b.file)||a.line-b.line);
+    const sc={};
+    for(const f of items) sc[f.severity]=(sc[f.severity]||0)+1;
+    const maxsev=items[0].severity;
+    const open=autoOpen||openCats.has(cat);
+    const gtr=document.createElement('tr'); gtr.className='grp'+(open?' open':'');
+    const badges=['critical','high','medium','low','info'].filter(s=>sc[s]).map(s=>`<span class="pill sev-${s}">${SEVKO[s]} ${sc[s]}</span>`).join(' ');
+    gtr.innerHTML=`<td colspan="5"><div class="grp-row">
+      <span class="chev">▶</span><span class="dot d-${maxsev}"></span>
+      <span class="cat-name">${esc(CATKO[cat]||cat)}</span>
+      <span class="cat-slug">${esc(cat)}</span>
+      <span class="cat-count">${items.length}건</span>
+      <span class="cat-sevs">${badges}</span></div></td>`;
+    gtr.addEventListener('click',()=>{ openCats.has(cat)?openCats.delete(cat):openCats.add(cat); draw(); });
+    rows.appendChild(gtr);
+    if(!open) continue;
+    for(const f of items){ const [tr,det]=findingRows(f); rows.appendChild(tr); rows.appendChild(det); }
   }
 }
 document.getElementById('q').addEventListener('input',e=>{filters.q=e.target.value.trim().toLowerCase();draw();});
@@ -197,6 +255,9 @@ document.querySelectorAll('#sevchips .chip').forEach(c=>c.addEventListener('clic
   const on=c.getAttribute('aria-pressed')==='true';c.setAttribute('aria-pressed',String(!on));
   on?filters.sev.delete(c.dataset.sev):filters.sev.add(c.dataset.sev);draw();}));
 document.getElementById('showSup').addEventListener('change',e=>{filters.showSup=e.target.checked;draw();});
+document.getElementById('expandAll').addEventListener('click',()=>{
+  for(const f of (RESULTS.findings||[]).filter(match)) openCats.add(f.category); draw();});
+document.getElementById('collapseAll').addEventListener('click',()=>{openCats.clear();draw();});
 
 // 시작: 임베드 데이터가 있으면 렌더, 없으면 드롭존
 if(DATA){ render(DATA); } else { drop.classList.add('show'); }
