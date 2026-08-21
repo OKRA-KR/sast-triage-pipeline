@@ -65,7 +65,7 @@ def run(target, out_dir):
     sarif = os.path.join(out_dir, "codeql.sarif")
     # 캐시: 이미 분석된 SARIF 가 있으면 재빌드 생략(느린 DB build/analyze 회피)
     if os.environ.get("SAST_CODEQL_CACHE") and os.path.exists(sarif):
-        return parse_sarif(sarif)
+        return parse_sarif(sarif, target)
     # DB 는 버리는 산출물 → 네이티브 임시 fs 에 생성(9P/네트워크 마운트에서 TRAP 쓰기가 느린 문제 회피).
     # SARIF 만 out_dir 에 남긴다. CODEQL_DB_DIR 로 위치 지정 가능.
     tmpbase = os.environ.get("CODEQL_DB_DIR") or tempfile.gettempdir()
@@ -82,16 +82,28 @@ def run(target, out_dir):
             print("[!] CodeQL DB 생성 실패:", (r.stderr or "")[-400:])
             return []
         subprocess.run([cli, "database", "analyze", db, "--format=sarif-latest",
-                        f"--output={sarif}", "--threads=1", f"--ram={ram}", SUITE[lang]],
+                        f"--output={sarif}", "--threads=1", f"--ram={ram}",
+                        "--sarif-add-snippets", SUITE[lang]],
                        capture_output=True, timeout=3600)
     except Exception as e:
         print("[!] CodeQL 실행 예외:", e)
         return []
     finally:
         shutil.rmtree(db, ignore_errors=True)
-    return parse_sarif(sarif)
+    return parse_sarif(sarif, target)
 
-def parse_sarif(sarif_path):
+def _read_ctx(source_root, path, s, e):
+    """소스 파일에서 finding 주변 코드 몇 줄을 읽어 컨텍스트로. (semgrep 어댑터와 동일 포맷)"""
+    if not source_root or not path or not s:
+        return ""
+    try:
+        L = open(os.path.join(source_root, path), encoding="utf-8", errors="replace").read().splitlines()
+        a, b = max(0, s - 4), min(len(L), (e or s) + 3)
+        return "\n".join(f"{n+1:>4}| {L[n]}" for n in range(a, b))
+    except Exception:
+        return ""
+
+def parse_sarif(sarif_path, source_root=None):
     if not os.path.exists(sarif_path):
         return []
     doc = json.load(open(sarif_path, encoding="utf-8"))
@@ -111,12 +123,16 @@ def parse_sarif(sarif_path):
             region = loc.get("region", {})
             s = region.get("startLine", 0); e = region.get("endLine", s)
             short = rid.split("/")[-1]
+            # 코드 컨텍스트: 소스에서 읽기 우선 → 없으면 SARIF 스니펫 → 그래도 없으면 빈값
+            ctx = _read_ctx(source_root, path, s, e)
+            if not ctx:
+                ctx = (region.get("snippet", {}) or {}).get("text", "").rstrip()
             findings.append(new_finding(
                 fingerprint=fingerprint(short, path, s, ""), engines=[NAME],
                 rule=short, full_rule=rid, pack="codeql",
                 category=categorize(rid, cwe),
                 severity=_sev_from_rule(props),
                 file=path, line=s, endline=e, cwe=cwe, owasp=[],
-                code="", message=(res.get("message", {}) or {}).get("text", "").strip(),
+                code=ctx, message=(res.get("message", {}) or {}).get("text", "").strip(),
                 confidence=0.5))  # taint 기반 → 기본 신뢰 부여
     return findings
