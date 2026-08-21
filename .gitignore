@@ -8,3 +8,5 @@ data/pico.min.css
 # runner artifacts (generated results + cloned target repos)
 out/
 targets/
+# provisioned semgrep rule bundle (offline) — provision.sh 로 재생성, 폐쇄망엔 별도 반입
+sast/semgrep-rules/

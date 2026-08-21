@@ -59,13 +59,28 @@ CVSS 기반 심각도, 수정본 버전, CVE 태그 포함. CLI 위치: `OSV_SCA
 ./sast-run.sh WebGoat/WebGoat --deep --verify http://localhost:8080/WebGoat
 ```
 
+## 폐쇄망 오프라인 (semgrep 룰 번들)
+
+semgrep 의 `p/…` 레지스트리 팩은 **온라인에서 다운로드**되므로 폐쇄망에서 안 된다.
+그래서 룰을 **로컬 번들**에서 로드한다:
+
+```bash
+./provision.sh                 # 온라인 머신에서 1회 — 룰 번들 생성(sast/semgrep-rules)
+export SAST_SEMGREP_RULES=<번들경로>   # (선택) 번들 위치 지정
+```
+
+- 번들 없으면 레지스트리 팩(온라인)으로 자동 폴백. 있으면 오프라인으로 로컬 룰 사용.
+- 번들에서 `security`/`secrets`/njsscan 룰만 골라 로드(저신호 룰셋은 제외 — 오탐↓).
+- **폐쇄망 반입**: 온라인에서 `./provision.sh` → 툴 전체(+ 번들 디렉터리)를 tar 로 묶어 반입 →
+  `SAST_SEMGREP_RULES` 로 가리키면 인터넷 없이 동작. CodeQL/osv-scanner 바이너리·오프라인 DB 도 동일 방식.
+
 ## 구조
 
 ```
 sast/                     코어 (stdlib 전용, 오프라인)
   engines/
     __init__.py           엔진 레지스트리 + run_all (fingerprint 로 dedup 병합)
-    semgrep_engine.py     Semgrep 어댑터 (기본)
+    semgrep_engine.py     Semgrep 어댑터 (기본, 로컬 룰 번들 → 오프라인)
     secrets_engine.py     중요정보 스캐너 (기본, stdlib 정규식 — 시크릿/개인정보)
     sca_engine.py         SCA (기본, osv-scanner — 의존성 CVE / A06)
     codeql_engine.py      CodeQL 어댑터 (--deep, taint/dataflow)
