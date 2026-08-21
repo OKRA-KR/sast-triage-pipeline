@@ -18,6 +18,12 @@ Semgrep 룰 엔진 + 데이터 기반 오탐 억제 + 고정 스키마 결과 + 
 CodeQL CLI 위치는 `CODEQL_HOME` 또는 PATH, 없으면 `~/codeql`. DB 는 임시 fs 에 생성 후 삭제,
 SARIF 만 `out/<name>/codeql.sarif` 에 남는다(`CODEQL_DB_DIR`, `CODEQL_RAM` 로 조정).
 
+**SCA(의존성 CVE, sca)**: `osv-scanner`(단일 바이너리 + 오프라인 OSV DB)를 감싸 lockfile/manifest
+(package-lock.json·pom.xml·requirements.txt·go.mod 등)의 **알려진 CVE**를 탐지한다(OWASP A06 / 취약 컴포넌트).
+9P 마운트에서 osv 재귀 walk 가 lockfile 을 못 찾는 문제를 피하려 파이썬으로 lockfile 을 찾아 `-L` 로 넘긴다.
+CVSS 기반 심각도, 수정본 버전, CVE 태그 포함. CLI 위치: `OSV_SCANNER` > PATH > `~/osv-scanner`.
+폐쇄망: `SAST_OSV_OFFLINE=1`(사전 다운로드 DB). osv-scanner 없으면 자동 스킵. 끄기 `SAST_NO_SCA=1`.
+
 **중요정보 스캐너(secrets-scan)**: 기본 내장 엔진(stdlib 정규식, 오프라인, 외부툴 불필요).
 평문 시크릿·자격증명·규제 개인정보를 탐지한다 — GitHub PAT·AWS키·Google/Slack/Stripe 키,
 개인키(PEM), JWT, DB 접속 URI(계정:비밀번호)·JDBC 비번, 하드코딩 비밀번호, 그리고
@@ -45,6 +51,7 @@ sast/                     코어 (stdlib 전용, 오프라인)
     __init__.py           엔진 레지스트리 + run_all (fingerprint 로 dedup 병합)
     semgrep_engine.py     Semgrep 어댑터 (기본)
     secrets_engine.py     중요정보 스캐너 (기본, stdlib 정규식 — 시크릿/개인정보)
+    sca_engine.py         SCA (기본, osv-scanner — 의존성 CVE / A06)
     codeql_engine.py      CodeQL 어댑터 (--deep, taint/dataflow)
   rules/
     suppress.json         오탐 억제/심각도/교차검증 룰 라이브러리 (데이터 — 코드 수정 없이 확장)
