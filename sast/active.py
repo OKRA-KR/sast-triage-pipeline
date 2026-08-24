@@ -10,6 +10,14 @@ import os, re, ssl, time, urllib.request, urllib.error
 from html.parser import HTMLParser
 from urllib.parse import urlparse, urljoin, parse_qsl, urlencode, urlunparse
 from .schema import new_finding
+from . import env
+
+# 인증 없이도 자주 존재하는 표면 — 크롤 시드용 콘텐츠 발굴(경량)
+COMMON_PATHS = ["/robots.txt", "/sitemap.xml", "/api", "/api/", "/admin", "/login",
+                "/user", "/search", "/index.php", "/main", "/home", "/config", "/upload",
+                "/board", "/list", "/view", "/download", "/file", "/mypage", "/member"]
+# JS/HTML 에서 엔드포인트 문자열 추출
+_EP_RE = re.compile(r"""["'](/[a-zA-Z0-9_\-./]{2,60}(?:\?[a-zA-Z0-9_=&%\-]{1,60})?)["']""")
 
 TIMEOUT = 8
 UA = "sast-active-dast/1"
@@ -29,7 +37,7 @@ def _ctx():
     return c
 
 
-def _fetch(url, redirect=True):
+def _fetch(url, redirect=True, data=None):
     if _req_count[0] >= MAX_REQ:
         return None
     _req_count[0] += 1
@@ -38,7 +46,8 @@ def _fetch(url, redirect=True):
     class _NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *a, **k): return None
     op = urllib.request.build_opener() if redirect else urllib.request.build_opener(_NoRedirect)
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    body = urlencode(data).encode() if data else None
+    req = urllib.request.Request(url, data=body, headers=env.http_headers())
     try:
         with op.open(req, timeout=TIMEOUT) as r:
             return r.status, {k.lower(): v for k, v in r.headers.items()}, r.read(200000).decode("utf-8", "replace")
@@ -66,14 +75,16 @@ class _Links(HTMLParser):
 
 def _crawl(base):
     host = urlparse(base).netloc
-    seen, queue, pages, forms = set(), [base], [], []
+    origin = "{0.scheme}://{0.netloc}".format(urlparse(base))
+    seen, pages, forms = set(), [], []
+    queue = [base] + [origin + p for p in COMMON_PATHS]     # 콘텐츠 발굴 시드
     while queue and len(seen) < MAX_PAGES:
-        url = queue.pop(0)
+        url = queue.pop(0).split("#")[0]
         if url in seen:
             continue
         seen.add(url)
         r = _fetch(url)
-        if not r or not r[2]:
+        if not r or r[0] == 404 or not r[2]:
             continue
         pages.append(url)
         p = _Links()
@@ -83,10 +94,12 @@ def _crawl(base):
             pass
         for f in p.forms:
             f["page"] = url; forms.append(f)
-        for href in p.links:
-            u = urljoin(url, href)
-            if urlparse(u).netloc == host and u not in seen and u.split("#")[0] not in seen:
-                queue.append(u.split("#")[0])
+        cand = list(p.links) + [urljoin(url, a) for a in (f["action"] for f in p.forms) if a]
+        cand += _EP_RE.findall(r[2])                        # JS/HTML 내 엔드포인트 문자열
+        for href in cand:
+            u = urljoin(url, href).split("#")[0]
+            if urlparse(u).netloc == host and u not in seen and len(seen) + len(queue) < MAX_PAGES * 3:
+                queue.append(u)
     return pages, forms
 
 
@@ -121,7 +134,7 @@ PROBES = [
 
 
 def _probe_point(fetch_with):
-    """fetch_with(payload)->resp ; baseline 은 payload='' 로."""
+    """fetch_with(payload)->resp ; baseline 은 정상값."""
     out = []
     base = fetch_with(MARK + "1")
     base_body = base[2] if base else ""
@@ -132,6 +145,13 @@ def _probe_point(fetch_with):
         ev = det(base_body, r[0], r[1], r[2])
         if ev:
             out.append((cat, sev, payload, ev))
+    # 불리언 기반 SQLi(오류 안 뱉는 경우) — true≈baseline, false 는 응답차
+    t = fetch_with("1' AND '1'='1"); fa = fetch_with("1' AND '1'='2")
+    if t and fa and t[2] and fa[2] and base_body:
+        lb, lt, lf = len(base_body), len(t[2]), len(fa[2])
+        if abs(lt - lb) < max(20, 0.02 * lb) and abs(lf - lt) > max(40, 0.06 * lt):
+            out.append(("sql-injection", "critical", "' AND '1'='1 vs '2",
+                        "불리언 응답차(base %d · true %d · false %d)" % (lb, lt, lf)))
     return out
 
 
@@ -155,13 +175,16 @@ def scan(base_url):
             for cat, sev, payload, ev in _probe_point(fw):
                 findings.append(_finding(cat, sev, url, key, payload, ev))
 
-    # 2) 폼 필드 (GET/POST)
+    # 2) 폼 필드 (GET/POST — method 존중)
     for f in forms:
         action = urljoin(f["page"], f["action"] or f["page"])
+        is_post = f.get("method") == "post"
         for key in f["fields"]:
-            def fw(pay, redirect=True, a=action, fields=f["fields"], k=key):
+            def fw(pay, redirect=True, a=action, fields=f["fields"], k=key, post=is_post):
                 data = {fld: (pay if fld == k else "test") for fld in fields}
-                return _fetch(a + ("?" + urlencode(data)), redirect=redirect)  # GET 폼 위주(안전)
+                if post:
+                    return _fetch(a, redirect=redirect, data=data)
+                return _fetch(a + ("?" + urlencode(data)), redirect=redirect)
             for cat, sev, payload, ev in _probe_point(fw):
                 findings.append(_finding(cat, sev, action, key, payload, ev, form=True))
 

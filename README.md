@@ -22,6 +22,7 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ./sast-run.sh <대상> --deep --online         # 개방망: 2·3계층(LLM) 활성화 (SAST_LLM_KEY 필요)
 ./sast-run.sh --verify <URL>                 # 소스 없이 URL 전용 점검(블랙박스)
 ./sast-run.sh --verify <URL> --active        # URL 능동 DAST (인가 대상 전용, payload 주입)
+./sast-run.sh --verify <URL> --active --cookie 'PHPSESSID=..'   # 세션 쿠키로 인증된 상태 점검
 #   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명   (대상 생략 + --verify = URL 전용)
 ```
 

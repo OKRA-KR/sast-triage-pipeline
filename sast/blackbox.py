@@ -7,6 +7,7 @@ Track A(SAST) 결과가 있으면 정적 finding 과 라이브 헤더를 교차�
 """
 import os, ssl, urllib.request, urllib.error
 from .schema import new_finding
+from . import env
 
 TIMEOUT = 6
 UA = "sast-blackbox/1"
@@ -45,7 +46,7 @@ def _ctx():
 
 
 def _fetch(url):
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    req = urllib.request.Request(url, headers=env.http_headers())
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT, context=_ctx()) as r:
             body = r.read(4096).decode("utf-8", "replace")

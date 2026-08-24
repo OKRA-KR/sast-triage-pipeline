@@ -17,6 +17,10 @@ def cmd_scan(a):
     verify_url = a.verify or os.environ.get("SAST_VERIFY_URL")
     if a.online:
         os.environ["SAST_ONLINE"] = "1"
+    if a.cookie:
+        os.environ["SAST_HTTP_COOKIE"] = a.cookie
+    if a.header:
+        os.environ["SAST_HTTP_HEADERS"] = ";;".join(a.header)
 
     target = os.path.abspath(a.target) if a.target else None
     have_repo = bool(target and os.path.isdir(target))
@@ -81,6 +85,8 @@ def main(argv=None):
     sc.add_argument("--no-triage", action="store_true", help="1계층 오프라인 트리아지 끄기")
     sc.add_argument("--verify", default=None, metavar="URL", help="블랙박스: 라이브 URL 점검(수동)")
     sc.add_argument("--active", action="store_true", help="능동 DAST(인가 대상 전용, 탐지 payload 주입)")
+    sc.add_argument("--cookie", default=None, help="DAST 요청 쿠키(예: 'PHPSESSID=..')")
+    sc.add_argument("--header", action="append", default=[], metavar="'N: V'", help="DAST 커스텀 헤더(반복 가능)")
     sc.set_defaults(func=cmd_scan)
     a = p.parse_args(argv)
     return a.func(a)

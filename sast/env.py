@@ -55,6 +55,22 @@ def tools_dir():
     return os.environ.get("SAST_TOOLS_DIR") or os.path.join(REPO_ROOT, "tools")
 
 
+def http_headers(base=None):
+    """DAST 요청 공통 헤더. SAST_HTTP_COOKIE(쿠키 문자열) + SAST_HTTP_HEADERS('N: V' 를 개행/;; 구분).
+    인가된 대상의 세션 쿠키·커스텀 헤더 주입용."""
+    h = dict(base or {})
+    h.setdefault("User-Agent", "sast-dast/1")
+    ck = os.environ.get("SAST_HTTP_COOKIE")
+    if ck:
+        h["Cookie"] = ck
+    raw = os.environ.get("SAST_HTTP_HEADERS", "")
+    for line in raw.replace(";;", "\n").splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            h[k.strip()] = v.strip()
+    return h
+
+
 def tool_path(name, env_var=None, extra_dirs=()):
     """도구 실행파일 discovery(이식성): 환경변수 → 반입키트(tools/) → PATH → dev 폴백.
     /home/kali 같은 개발머신 경로는 extra_dirs(최후 폴백)로만."""
