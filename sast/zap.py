@@ -114,32 +114,40 @@ def scan(base_url, findings=None):
                 _api("/JSON/core/action/shutdown/")
             except Exception:
                 pass
-    new = [_to_finding(a) for a in alerts]
-    # 동일 (name,url,param) 중복 제거
-    seen, uniq = set(), []
-    for f in new:
-        if f["fingerprint"] in seen:
-            continue
-        seen.add(f["fingerprint"]); uniq.append(f)
-    print(f"[*] ZAP DAST: alert {len(alerts)} → finding {len(uniq)}건")
+    # alert 유형별 집계 — 같은 이슈가 URL 마다 뜨는 노이즈를 1건으로(위치 수·샘플 포함)
+    groups = {}
+    for a in alerts:
+        key = str(a.get("pluginId") or a.get("name"))
+        groups.setdefault(key, []).append(a)
+    uniq = [_to_finding_agg(items) for items in groups.values()]
+    uniq.sort(key=lambda f: {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}.get(f["severity"], 5))
+    print(f"[*] ZAP DAST: alert {len(alerts)} → 이슈유형 {len(uniq)}건(집계)")
     return (findings or []) + uniq
 
 
-def _to_finding(a):
+def _to_finding_agg(items):
+    """같은 alert 유형(pluginId)의 여러 인스턴스를 1 finding 으로 집계."""
+    a = items[0]
     name = a.get("name", "ZAP alert")
     cwe = a.get("cweid", "")
-    cwe_list = ["CWE-" + str(cwe)] if cwe and cwe != "-1" else []
+    cwe_list = ["CWE-" + str(cwe)] if cwe and cwe not in ("-1", "0") else []
     cat = categorize(name + " " + a.get("alertRef", ""), cwe_list)
-    url = a.get("url", "")
-    param = a.get("param", "")
+    urls = []
+    for it in items:
+        u = it.get("url", "")
+        if u and u not in urls:
+            urls.append(u)
+    params = sorted({it.get("param", "") for it in items if it.get("param")})
+    n = len(items)
+    samples = " | ".join(urls[:5]) + (f"  (+{len(urls) - 5} more)" if len(urls) > 5 else "")
     return new_finding(
-        fingerprint=fingerprint("zap-" + str(a.get("pluginId", name)), url, 0, param),
+        fingerprint=fingerprint("zap-" + str(a.get("pluginId", name)), name, 0, ""),
         engines=["zap"], rule=name[:60], full_rule="zap:" + str(a.get("pluginId", "")),
         pack="zap", category=cat, severity=RISK.get(a.get("risk", "Low"), "low"),
         sev_lock=True, confidence=0.85, source="DAST", verdict="true_positive",
-        file=url, line=0, cwe=cwe_list,
-        message=f"[ZAP] {name} — 파라미터 '{param}'" if param else "[ZAP] " + name,
-        evidence=(a.get("evidence") or a.get("attack") or "")[:200],
+        file=urls[0] if urls else "", line=0, cwe=cwe_list,
+        message=f"[ZAP] {name} — {n}개 위치" + (f", 파라미터 {', '.join(params[:5])}" if params else ""),
+        evidence=f"영향 위치 {n}개 · 샘플: {samples}",
         poc=(a.get("attack") or "")[:400],
         fix=(a.get("solution") or "")[:400],
-        rationale=(a.get("description") or "")[:300])
+        rationale=(a.get("description") or "")[:400])
