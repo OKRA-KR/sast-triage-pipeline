@@ -23,7 +23,7 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ./sast-run.sh --verify <URL>                 # 소스 없이 URL 전용 점검(블랙박스)
 ./sast-run.sh --verify <URL> --active        # URL 능동 DAST (인가 대상 전용, payload 주입)
 ./sast-run.sh --verify <URL> --active --cookie 'PHPSESSID=..'   # 세션 쿠키로 인증된 상태 점검
-./sast-run.sh --verify <URL> --zap --cookie 'PHPSESSID=..'      # ZAP DAST(spider+AJAX+active scan, ZAP급)
+./sast-run.sh --verify <URL> --okra --cookie 'PHPSESSID=..'     # OKRA DAST(엔진 OWASP ZAP: spider+AJAX+active scan + 중요정보 스캔)
 #   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명   (대상 생략 + --verify = URL 전용)
 ```
 
@@ -79,7 +79,9 @@ CVSS 기반 심각도, 수정본 버전, CVE 태그 포함. CLI 위치: `OSV_SCA
 | **3계층** | LLM 심화 (PoC/공격포인트/조치) | ✓ | off | `--online` + `SAST_LLM_KEY` |
 | **블랙박스**(Track B) | 라이브 URL 엔드포인트→공격포인트(수동 recon) | ✗ (내부망) | URL 있을 때 | `--verify <URL>` / `SAST_NO_VERIFY=1` |
 | **능동 DAST**(Track B) | URL 크롤→파라미터에 탐지 payload 주입(SQLi/XSS/SSTI/경로/리다이렉트) | ✗ (내부망) | off | `--active` (**인가 대상 전용**) |
+| **OKRA DAST**(Track B) | OWASP ZAP 엔진(spider+AJAX+active scan) + **응답 본문 중요정보(주민번호·카드·토큰) 스캔** | ✗ (내부망, ZAP 반입) | off | `--okra` (**인가 대상 전용**) |
 
+- **OKRA DAST**: 성숙한 스캔 엔진으로 [OWASP ZAP](https://www.zaproxy.org/)(Apache-2.0)을 구동하고, alert 를 유형별로 집계·정규화한 뒤 **ZAP 이 못 하는 국내 컴플라이언스 중요정보**(주민번호 체크섬·카드 Luhn·PAT·DB 자격증명)를 라이브 응답 본문에서 추가 탐지한다(OKRA 1계층 secrets 엔진 재사용). ZAP 은 오프라인 Java 앱이라 폐쇄망 반입 가능. 엔진 크레딧: OWASP ZAP.
 - **폐쇄망**: 기본값이 offline 이라 2·3계층이 실행조차 안 됨 → 1계층(+선택 블랙박스)만.
 - **개방망**: `--online` + LLM 키가 있어야 2·3계층이 돈다. 하나라도 없으면 자동 건너뜀(안전).
 - 블랙박스는 LLM 불필요 — 소스가 없거나(Track B) SAST 와 병행해 라이브 확증에 쓴다(GET 전용, 시그니처로 오탐 억제).
@@ -139,7 +141,7 @@ sast/                     코어 (stdlib 전용, 오프라인)
   layer3.py               3계층: LLM 심화 — PoC/공격포인트/조치 (개방망 전용)
   blackbox.py             Track B: 라이브 URL 엔드포인트→공격포인트, 수동 recon (LLM 불필요)
   active.py               Track B 경량 능동 DAST: 크롤+payload 주입 (--active, 의존성0)
-  zap.py                  Track B ZAP DAST: OWASP ZAP 구동+alert 정규화 (--zap, ZAP급)
+  okra.py                 Track B OKRA DAST: OWASP ZAP(Apache-2.0) 구동+alert 정규화 + 응답 본문 중요정보 스캔 (--okra)
   report.py               results.json(sast-results/2) + 대시보드 생성
   cli.py                  python3 -m sast scan <target> --out <dir> [--online] [--verify URL]
 dashboard.template.html   넓은(1400px) 자체완결 뷰어

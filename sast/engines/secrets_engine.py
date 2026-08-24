@@ -135,6 +135,43 @@ def run(target, out_dir):
     return findings
 
 
+def scan_text(text, location, source="OKRA-DAST"):
+    """임의 텍스트(예: DAST 응답 본문)에서 중요정보 탐지 — run() 과 동일 룰/검증/마스킹 재사용.
+    라이브로 노출된 시크릿/개인정보(주민번호·카드 등)를 잡는다."""
+    pats, deny = _load()
+    findings, seen = [], set()
+    for ln, line in enumerate((text or "").splitlines(), 1):
+        if len(line) > MAX_LINE:
+            continue
+        for p, rx in pats:
+            for m in rx.finditer(line):
+                val = m.group(p.get("group", 0)) or m.group(0)
+                if p.get("placeholder_check"):
+                    low = val.lower()
+                    if any(x in low for x in deny) or len(set(val)) < 4:
+                        continue
+                v = p.get("validator")
+                if v and not VALIDATORS[v](m.group(0)):
+                    continue
+                key = (p["id"], location, val)
+                if key in seen:
+                    continue
+                seen.add(key)
+                masked = _redact(val)
+                comp = ", ".join(p.get("compliance", []))
+                findings.append(new_finding(
+                    fingerprint=fingerprint("okra-" + p["id"], location, ln, val),
+                    engines=[source], rule=p["id"], full_rule=p["id"], pack="okra",
+                    category=p["category"], severity=p["severity"], sev_lock=True, confidence=0.9,
+                    source=source, file=location, line=ln, cwe=p.get("cwe", []),
+                    compliance=p.get("compliance", []),
+                    message=f"{p['name']} 라이브 노출 — {masked}" + (f"  [규정: {comp}]" if comp else ""),
+                    evidence=masked, verdict="true_positive",
+                    dynamic={"status": "confirmed", "evidence": f"응답에서 {p['name']} 노출: {masked}"},
+                    rationale=f"라이브 응답에 평문 {p['name']} 노출 — 규정상 즉시 조치 대상."))
+    return findings
+
+
 def _ctx(lines, ln, secret):
     """주변 코드 컨텍스트(시크릿은 마스킹). semgrep 어댑터와 동일 포맷."""
     a, b = max(0, ln - 3), min(len(lines), ln + 2)
