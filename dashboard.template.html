@@ -156,13 +156,15 @@ const CATKO = {
   "missing-anti-automation":"레이트리밋 부재","timing-attack":"타이밍 공격","info-disclosure":"정보 노출",
   "ci-hardening":"CI 하드닝","supply-chain":"공급망","csrf":"CSRF","log-injection":"로그 인젝션",
   "insecure-cookie":"취약한 쿠키","sensitive-data":"중요정보/개인정보","toctou":"시간/상태(TOCTOU)",
-  "ssrf":"SSRF","type-confusion":"타입 혼동","security-misconfig":"보안설정(헤더/CORS)","other":"기타"};
+  "ssrf":"SSRF","type-confusion":"타입 혼동","security-misconfig":"보안설정(헤더/CORS)",
+  "file-upload":"파일 업로드","request-smuggling":"요청 스머글링","other":"기타"};
 // 세부 category → 분석기준 상위 그룹 (results.json 의 group 필드가 없을 때의 폴백)
 const GROUP={
   "sql-injection":"injection","nosql-injection":"injection","command-injection":"injection",
   "code-injection":"injection","ssti":"injection","xxe":"injection","log-injection":"injection",
   "prototype-pollution":"injection","path-traversal":"injection","deserialization":"injection",
   "redos":"injection","toctou":"injection","type-confusion":"injection",
+  "file-upload":"injection","request-smuggling":"injection",
   "xss":"xss","weak-sanitization":"xss",
   "access-control":"broken-access","csrf":"broken-access","ssrf":"broken-access",
   "open-redirect":"broken-access","missing-anti-automation":"broken-access",

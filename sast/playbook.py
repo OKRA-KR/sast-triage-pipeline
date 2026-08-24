@@ -30,7 +30,10 @@ def enrich(findings, pb=None):
         if not entry:
             continue
         if not f.get("poc") and entry.get("poc"):
-            f["poc"] = entry["poc"]
+            poc = entry["poc"]
+            if entry.get("waf_bypass"):
+                poc += "\n[WAF/필터 우회] " + entry["waf_bypass"]
+            f["poc"] = poc
         if not f.get("fix") and entry.get("mitigate"):
             f["fix"] = entry["mitigate"]
         if entry.get("detect"):

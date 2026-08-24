@@ -13,6 +13,8 @@
     "sensitive-data": "high",
     "path-traversal": "high",
     "ssrf": "high",
+    "file-upload": "high",
+    "request-smuggling": "high",
     "xxe": "high",
     "xss": "high",
     "prototype-pollution": "high",
