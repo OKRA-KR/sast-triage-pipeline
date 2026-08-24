@@ -46,22 +46,30 @@ def mode_label():
     return "폐쇄망(offline)"
 
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def tools_dir():
+    """반입 키트 도구 루트. SAST_TOOLS_DIR 우선, 없으면 <repo>/tools.
+    provision.sh 가 여기에 semgrep-rules/codeql/osv-scanner 등을 모은다 → git+tar 로 반입."""
+    return os.environ.get("SAST_TOOLS_DIR") or os.path.join(REPO_ROOT, "tools")
+
+
 def tool_path(name, env_var=None, extra_dirs=()):
-    """도구 실행파일 위치: 환경변수 → PATH → 추가 후보 경로. 없으면 None.
-    (엔진 어댑터의 /home/kali 하드코딩을 대체하는 공통 discovery.)"""
+    """도구 실행파일 discovery(이식성): 환경변수 → 반입키트(tools/) → PATH → dev 폴백.
+    /home/kali 같은 개발머신 경로는 extra_dirs(최후 폴백)로만."""
     if env_var:
         v = os.environ.get(env_var)
-        if v and os.path.exists(v):
+        if v and os.path.isfile(v):
             return v
+    td = tools_dir()
+    for p in (os.path.join(td, name), os.path.join(td, name, name)):   # flat / nested
+        if os.path.isfile(p):
+            return p
     w = shutil.which(name)
     if w:
         return w
-    cands = list(extra_dirs) + [
-        os.path.expanduser(f"~/{name}"),
-        os.path.expanduser(f"~/{name}/{name}"),
-        os.path.join(os.environ.get("SAST_TOOLS_DIR", ""), name) if os.environ.get("SAST_TOOLS_DIR") else "",
-    ]
-    for p in cands:
-        if p and os.path.exists(p):
+    for p in extra_dirs:
+        if p and os.path.isfile(p):
             return p
     return None

@@ -9,6 +9,7 @@
 """
 import json, os, shutil, subprocess
 from ..schema import categorize, fingerprint, new_finding, SEMGREP_SEV
+from .. import env
 
 NAME = "semgrep"
 SAST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,8 +23,11 @@ def _bundle_dir():
     b = os.environ.get("SAST_SEMGREP_RULES")
     if b and os.path.isdir(b):
         return b
-    cand = os.path.join(SAST_DIR, "semgrep-rules")   # repo-local 기본 번들
-    return cand if os.path.isdir(cand) else None
+    for cand in (os.path.join(env.tools_dir(), "semgrep-rules"),   # 반입 키트
+                 os.path.join(SAST_DIR, "semgrep-rules")):          # repo-local
+        if os.path.isdir(cand):
+            return cand
+    return None
 
 # 프레임워크 룰 디렉터리는 대상에 그 언어가 있을 때만 로드(크로스언어 오탐 방지).
 # generic/yaml/terraform/dockerfile/html 은 파일타입이 자체 스코핑되므로 항상 로드.

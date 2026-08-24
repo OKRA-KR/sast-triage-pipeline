@@ -86,20 +86,29 @@ CVSS 기반 심각도, 수정본 버전, CVE 태그 포함. CLI 위치: `OSV_SCA
 SAST_LLM_KEY=... ./sast-run.sh WebGoat/WebGoat --deep --online
 ```
 
-## 폐쇄망 오프라인 (semgrep 룰 번들)
+## 이식성 & 폐쇄망 반입 (carry-in kit)
 
-semgrep 의 `p/…` 레지스트리 팩은 **온라인에서 다운로드**되므로 폐쇄망에서 안 된다.
-그래서 룰을 **로컬 번들**에서 로드한다:
+**여러 현장에 git clone → tar 로 반입**하는 모델. 모든 무거운 의존성을 repo-내 `tools/` 한 곳에
+모아 통째로 옮긴다. 엔진은 `SAST_TOOLS_DIR`(기본 `<repo>/tools`)에서 자동 탐색 —
+특정 머신 경로(`/home/kali` 등)에 묶이지 않음(그건 개발용 최후 폴백).
 
 ```bash
-./provision.sh                 # 온라인 머신에서 1회 — 룰 번들 생성(sast/semgrep-rules)
-export SAST_SEMGREP_RULES=<번들경로>   # (선택) 번들 위치 지정
+# ── 온라인 머신에서 (1회) ──
+git clone <repo> && cd sast-draft
+./provision.sh              # tools/ 에 수집: semgrep 룰 + osv(바이너리+오프라인DB) + CodeQL 번들
+./provision.sh --with-llm   # + Ollama + 로컬 모델(2·3계층 오프라인용, 용량 큼)
+./package.sh                # → ../sast-kit.tar.zst (tools/ 포함)
+
+# ── 폐쇄망에서 ──
+tar --use-compress-program=unzstd -xf sast-kit.tar.zst && cd sast-draft
+export SAST_TOOLS_DIR=$(pwd)/tools     # 엔진·룰·DB 자동 인식
+export SAST_OSV_OFFLINE=1               # osv 오프라인 DB 사용(tools/osv-cache)
+./sast-run.sh <대상> --deep [--verify <URL>]
 ```
 
-- 번들 없으면 레지스트리 팩(온라인)으로 자동 폴백. 있으면 오프라인으로 로컬 룰 사용.
-- 번들에서 `security`/`secrets`/njsscan 룰만 골라 로드(저신호 룰셋은 제외 — 오탐↓).
-- **폐쇄망 반입**: 온라인에서 `./provision.sh` → 툴 전체(+ 번들 디렉터리)를 tar 로 묶어 반입 →
-  `SAST_SEMGREP_RULES` 로 가리키면 인터넷 없이 동작. CodeQL/osv-scanner 바이너리·오프라인 DB 도 동일 방식.
+반입 키트 구성(`tools/`): `semgrep-rules/`(security 룰만), `osv-scanner`+`osv-cache/`(오프라인 CVE DB),
+`codeql/`(CLI+쿼리팩), (선택) `ollama/`+`ollama-models/`. semgrep 은 `p/…` 레지스트리(온라인) 대신
+이 로컬 번들을 로드하고, 번들 없으면 레지스트리로 폴백한다. CodeQL 은 쿼리팩까지 있어야 오프라인 동작(번들 사용).
 
 ## 구조
 

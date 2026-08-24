@@ -1,39 +1,73 @@
 #!/usr/bin/env bash
-# 폐쇄망 반입용 semgrep 룰 번들 프로비저닝 (온라인 머신에서 1회 실행).
+# 반입 키트 프로비저닝 — 온라인 머신에서 1회 실행.
+# 모든 오프라인 의존성을 <repo>/tools/ 에 모은다 → git+tar 로 폐쇄망 반입.
 #
 # 사용:
-#   ./provision.sh [번들경로]     # 기본: sast/semgrep-rules
+#   ./provision.sh                 # semgrep 룰 + osv(바이너리+DB) + codeql 번들
+#   ./provision.sh --with-llm      # + Ollama + 로컬 모델(용량 큼)
+#   TOOLS=/경로 ./provision.sh     # tools 위치 지정(기본 <repo>/tools)
 #
-# 이후 폐쇄망에서는:
-#   - 번들 디렉터리를 툴과 함께 반입
-#   - 자동 인식(sast/semgrep-rules) 또는  export SAST_SEMGREP_RULES=<번들경로>
-#   → semgrep 이 레지스트리(온라인) 없이 로컬 룰로 동작.
-set -euo pipefail
+# 반입: ./package.sh 로 tar 생성 → 폐쇄망에서 풀고  export SAST_TOOLS_DIR=<repo>/tools
+set -uo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-DEST="${1:-$ROOT/sast/semgrep-rules}"
-mkdir -p "$DEST"
-echo "[*] 번들 대상: $DEST"
+TOOLS="${TOOLS:-$ROOT/tools}"
+WITH_LLM=""; for a in "$@"; do [ "$a" = "--with-llm" ] && WITH_LLM=1; done
+mkdir -p "$TOOLS"
+echo "[*] 반입 키트 위치: $TOOLS"
+ok(){ echo "  ✓ $1"; }; warn(){ echo "  ! $1"; }
 
-# 1) semgrep-rules — 스캔 언어의 보안 룰만 sparse 로 받는다(용량↓)
-if [ ! -d "$DEST/semgrep-rules/.git" ]; then
-  echo "[*] semgrep-rules sparse clone…"
+# 1) semgrep 룰 (security 하위만 sparse)
+if [ ! -d "$TOOLS/semgrep-rules/semgrep-rules" ]; then
+  echo "[*] semgrep-rules …"
   git clone --depth 1 --filter=blob:none --sparse \
-    https://github.com/semgrep/semgrep-rules.git "$DEST/semgrep-rules"
-  ( cd "$DEST/semgrep-rules" && \
-    git sparse-checkout set java javascript typescript python generic yaml terraform dockerfile html )
-else
-  echo "[*] semgrep-rules 이미 있음 — pull"; ( cd "$DEST/semgrep-rules" && git pull --quiet || true )
+    https://github.com/semgrep/semgrep-rules.git "$TOOLS/semgrep-rules/semgrep-rules" 2>/dev/null \
+    && ( cd "$TOOLS/semgrep-rules/semgrep-rules" && git sparse-checkout set java javascript typescript python generic yaml terraform dockerfile html ) \
+    && git clone --depth 1 https://github.com/ajinabraham/njsscan.git "$TOOLS/semgrep-rules/njsscan" 2>/dev/null \
+    && ok "semgrep-rules + njsscan" || warn "semgrep-rules 실패"
+else ok "semgrep-rules (이미 있음)"; fi
+
+# 2) osv-scanner 바이너리 + 오프라인 OSV DB
+if [ ! -x "$TOOLS/osv-scanner" ]; then
+  echo "[*] osv-scanner …"
+  url=$(curl -s https://api.github.com/repos/google/osv-scanner/releases/latest \
+        | grep -oE "https://[^\"]*osv-scanner_linux_amd64" | head -1)
+  [ -n "$url" ] && curl -sL "$url" -o "$TOOLS/osv-scanner" && chmod +x "$TOOLS/osv-scanner" && ok "osv-scanner" || warn "osv-scanner 실패"
+else ok "osv-scanner (이미 있음)"; fi
+if [ -x "$TOOLS/osv-scanner" ]; then
+  echo "[*] OSV 오프라인 DB 다운로드 …"
+  mkdir -p "$TOOLS/osv-cache" /tmp/_osvseed
+  printf 'requests==2.0.0\n' > /tmp/_osvseed/requirements.txt
+  XDG_CACHE_HOME="$TOOLS/osv-cache" "$TOOLS/osv-scanner" scan source \
+    --offline-vulnerabilities --download-offline-databases \
+    -L /tmp/_osvseed/requirements.txt >/dev/null 2>&1
+  [ -d "$TOOLS/osv-cache/osv-scanner" ] && ok "OSV DB → tools/osv-cache" || warn "OSV DB 다운로드 확인 필요"
 fi
 
-# 2) njsscan 의 semgrep(semantic_grep) 룰 — Node 전용 보안룰(NoSQL 등)
-if [ ! -d "$DEST/njsscan/.git" ]; then
-  echo "[*] njsscan clone…"
-  git clone --depth 1 https://github.com/ajinabraham/njsscan.git "$DEST/njsscan"
-else
-  echo "[*] njsscan 이미 있음 — pull"; ( cd "$DEST/njsscan" && git pull --quiet || true )
+# 3) CodeQL 번들(CLI + 쿼리팩 — 오프라인 필수)
+if [ ! -x "$TOOLS/codeql/codeql" ]; then
+  echo "[*] CodeQL 번들 …(수백 MB)"
+  curl -sL "https://github.com/github/codeql-action/releases/latest/download/codeql-bundle-linux64.tar.gz" \
+    -o /tmp/_cqbundle.tgz \
+    && tar -xzf /tmp/_cqbundle.tgz -C "$TOOLS" && rm -f /tmp/_cqbundle.tgz \
+    && ok "codeql 번들 → tools/codeql" || warn "codeql 실패"
+else ok "codeql (이미 있음)"; fi
+
+# 4) (선택) 로컬 LLM: Ollama + 소형 모델
+if [ -n "$WITH_LLM" ]; then
+  echo "[*] Ollama + 모델 …(용량 큼)"
+  if [ ! -x "$TOOLS/ollama/bin/ollama" ]; then
+    ourl=$(curl -s https://api.github.com/repos/ollama/ollama/releases/latest \
+          | grep -oE "https://[^\"]*ollama-linux-amd64.tar.zst" | grep -v mlx | head -1)
+    mkdir -p "$TOOLS/ollama" && curl -sL "$ourl" -o /tmp/_oll.zst \
+      && tar --use-compress-program=unzstd -xf /tmp/_oll.zst -C "$TOOLS/ollama" && rm -f /tmp/_oll.zst && ok "ollama" || warn "ollama 실패"
+  fi
+  OLLAMA_MODELS="$TOOLS/ollama-models" LD_LIBRARY_PATH="$TOOLS/ollama/lib" \
+    "$TOOLS/ollama/bin/ollama" serve >/tmp/_oll.log 2>&1 &
+  sleep 5
+  OLLAMA_MODELS="$TOOLS/ollama-models" LD_LIBRARY_PATH="$TOOLS/ollama/lib" \
+    "$TOOLS/ollama/bin/ollama" pull "${SAST_LLM_MODEL:-qwen2.5:3b}" && ok "모델 → tools/ollama-models" || warn "모델 pull 실패"
 fi
 
-SEC=$(find "$DEST" -type d \( -name security -o -name secrets -o -name semantic_grep \) | wc -l)
 echo
-echo "완료. 보안 룰 디렉터리 $SEC 개."
-echo "폐쇄망 반입: '$DEST' 를 툴과 함께 옮기고, 필요시  export SAST_SEMGREP_RULES=$DEST"
+echo "완료. 반입: ./package.sh  →  sast-kit.tar.zst 를 폐쇄망으로."
+echo "폐쇄망에서: tar 풀고  export SAST_TOOLS_DIR=$TOOLS  (엔진이 자동 인식)"

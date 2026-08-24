@@ -13,3 +13,6 @@ sast/semgrep-rules/
 # scratch/experiment files (LLM 비교 등)
 _*.py
 _cmp_*.json
+# 반입 키트(무거운 의존성) — provision.sh 로 재생성
+tools/
+sast-kit.tar.zst

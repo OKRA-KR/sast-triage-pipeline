@@ -72,12 +72,15 @@ def run(target, out_dir):
         return []
     out_json = os.path.join(out_dir, "osv.json")
     cmd = [cli, "scan", "source", "--format", "json", "--output-file", out_json]
+    runenv = dict(os.environ)
     if os.environ.get("SAST_OSV_OFFLINE"):
-        cmd += ["--offline", "--experimental-offline-vulnerabilities"]  # 사전 다운로드 DB
+        cmd += ["--offline", "--offline-vulnerabilities"]     # 반입된 로컬 OSV DB 사용
+        # 반입 키트의 DB 캐시(provision.sh 가 채움) 를 가리킴
+        runenv["XDG_CACHE_HOME"] = os.environ.get("SAST_OSV_CACHE", os.path.join(env.tools_dir(), "osv-cache"))
     for lf in locks:
         cmd += ["-L", lf]
     try:
-        subprocess.run(cmd, capture_output=True, timeout=1800)
+        subprocess.run(cmd, capture_output=True, timeout=1800, env=runenv)
     except Exception as e:
         print("[!] osv-scanner 실행 예외:", e)
         return []
