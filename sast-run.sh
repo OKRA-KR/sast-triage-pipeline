@@ -17,19 +17,32 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 TARGETS="$ROOT/targets"; OUTBASE="$ROOT/out"
 mkdir -p "$TARGETS" "$OUTBASE"
 
-ARG=""; DEEP=""; VERIFY=""; ONLINE=""
-# 옵션 파싱: --deep, --online, --verify <URL>, 그 외 첫 비옵션은 대상
+ARG=""; DEEP=""; VERIFY=""; ONLINE=""; ACTIVE=""
+# 옵션 파싱: --deep, --online, --active, --verify <URL>, 그 외 첫 비옵션은 대상
 prev=""
 for a in "$@"; do
   if [ "$prev" = "--verify" ]; then VERIFY="$a"; prev=""; continue; fi
   case "$a" in
     --deep) DEEP=1 ;;
     --online) ONLINE=1 ;;
+    --active) ACTIVE=1 ;;
     --verify) prev="--verify" ;;
     *) [ -z "$ARG" ] && ARG="$a" ;;
   esac
 done
-if [ -z "$ARG" ]; then echo "사용법: ./sast-run.sh <경로|gitURL|owner/repo|폴더명> [--deep] [--online] [--verify <URL>]"; exit 1; fi
+# 대상(소스) 없이 --verify 만 있으면 URL 전용(블랙박스/능동) 모드
+if [ -z "$ARG" ] && [ -z "$VERIFY" ]; then
+  echo "사용법: ./sast-run.sh <경로|gitURL|owner/repo|폴더명> [--deep] [--online] [--verify <URL> [--active]]"
+  echo "   또는: ./sast-run.sh --verify <URL> [--active]   # 소스 없이 URL 점검"
+  exit 1
+fi
+if [ -z "$ARG" ]; then
+  NAME="$(echo "$VERIFY" | sed -E 's#https?://##; s#[:/].*##')"; OUT="$OUTBASE/$NAME"
+  EXTRA="--verify $VERIFY"; [ -n "$ACTIVE" ] && EXTRA="$EXTRA --active" && echo "[!] 능동 DAST — 인가 대상 전용"
+  echo "[*] URL 전용 점검: $VERIFY  →  $OUT"
+  ( cd "$ROOT" && python3 -m sast scan --out "$OUT" --name "$NAME" $EXTRA )
+  echo "완료: $OUT/index.html"; exit 0
+fi
 if [ -n "$DEEP" ]; then export SAST_DEEP=1 SAST_CODEQL_CACHE=1; echo "[*] deep 모드: CodeQL(taint) 포함"; fi
 
 # 대상 해석 -> 로컬 경로 TARGET + 이름 NAME
@@ -58,6 +71,7 @@ echo "[*] 대상: $TARGET"
 echo "[*] 출력: $OUT"
 EXTRA=""
 [ -n "$VERIFY" ] && EXTRA="$EXTRA --verify $VERIFY" && echo "[*] 블랙박스 점검 대상: $VERIFY"
+[ -n "$ACTIVE" ] && EXTRA="$EXTRA --active" && echo "[!] 능동 DAST — 인가 대상 전용"
 [ -n "$ONLINE" ] && EXTRA="$EXTRA --online" && echo "[*] 개방망 모드: 2·3계층(LLM) 활성화 시도"
 ( cd "$ROOT" && python3 -m sast scan "$TARGET" --out "$OUT" --name "$NAME" $EXTRA )
 

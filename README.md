@@ -18,9 +18,11 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ```bash
 ./sast-run.sh <대상>                         # 폐쇄망: 1계층만
 ./sast-run.sh <대상> --deep                  # + CodeQL taint
-./sast-run.sh <대상> --deep --verify <URL>   # + 블랙박스(라이브 점검)
+./sast-run.sh <대상> --deep --verify <URL>   # + 블랙박스(라이브 수동 점검)
 ./sast-run.sh <대상> --deep --online         # 개방망: 2·3계층(LLM) 활성화 (SAST_LLM_KEY 필요)
-#   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명   (대상 생략 + --verify = 블랙박스만)
+./sast-run.sh --verify <URL>                 # 소스 없이 URL 전용 점검(블랙박스)
+./sast-run.sh --verify <URL> --active        # URL 능동 DAST (인가 대상 전용, payload 주입)
+#   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명   (대상 생략 + --verify = URL 전용)
 ```
 
 LLM 계층 설정: `SAST_LLM_KEY`(필수), `SAST_LLM_ENDPOINT`(기본 Anthropic), `SAST_LLM_MODEL`(기본 claude-opus-5).
@@ -73,7 +75,8 @@ CVSS 기반 심각도, 수정본 버전, CVE 태그 포함. CLI 위치: `OSV_SCA
 | **1계층** | 룰 4엔진 + 오프라인 트리아지(suppress/crossval) | ✗ (폐쇄망 OK) | on | 엔진별 `SAST_NO_*`, `--deep`(codeql), `--no-triage` |
 | **2계층** | LLM 트리아지 (오탐/정탐 판별) | ✓ | off | `--online` + `SAST_LLM_KEY` |
 | **3계층** | LLM 심화 (PoC/공격포인트/조치) | ✓ | off | `--online` + `SAST_LLM_KEY` |
-| **블랙박스**(Track B) | 라이브 URL 엔드포인트→공격포인트 | ✗ (내부망) | URL 있을 때 | `--verify <URL>` / `SAST_NO_VERIFY=1` |
+| **블랙박스**(Track B) | 라이브 URL 엔드포인트→공격포인트(수동 recon) | ✗ (내부망) | URL 있을 때 | `--verify <URL>` / `SAST_NO_VERIFY=1` |
+| **능동 DAST**(Track B) | URL 크롤→파라미터에 탐지 payload 주입(SQLi/XSS/SSTI/경로/리다이렉트) | ✗ (내부망) | off | `--active` (**인가 대상 전용**) |
 
 - **폐쇄망**: 기본값이 offline 이라 2·3계층이 실행조차 안 됨 → 1계층(+선택 블랙박스)만.
 - **개방망**: `--online` + LLM 키가 있어야 2·3계층이 돈다. 하나라도 없으면 자동 건너뜀(안전).
@@ -132,7 +135,8 @@ sast/                     코어 (stdlib 전용, 오프라인)
   llm.py                  LLM 클라이언트(stdlib urllib, Anthropic 기본, 교체 가능)
   layer2.py               2계층: LLM 트리아지 (개방망 전용)
   layer3.py               3계층: LLM 심화 — PoC/공격포인트/조치 (개방망 전용)
-  blackbox.py             Track B: 라이브 URL 엔드포인트→공격포인트 (LLM 불필요)
+  blackbox.py             Track B: 라이브 URL 엔드포인트→공격포인트, 수동 recon (LLM 불필요)
+  active.py               Track B 능동 DAST: 크롤+탐지 payload 주입 (--active, 인가 전용)
   report.py               results.json(sast-results/2) + 대시보드 생성
   cli.py                  python3 -m sast scan <target> --out <dir> [--online] [--verify URL]
 dashboard.template.html   넓은(1400px) 자체완결 뷰어
