@@ -8,7 +8,7 @@ Track B (Repo 없음)  → 블랙박스: 라이브 URL 엔드포인트 식별 �
 """
 import argparse, os, sys
 from .engines import run_all
-from . import triage, crossval, playbook, layer2, layer3, blackbox, active, report, env
+from . import triage, crossval, playbook, layer2, layer3, blackbox, active, zap, report, env
 
 
 def cmd_scan(a):
@@ -60,10 +60,14 @@ def cmd_scan(a):
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
         findings = blackbox.probe(findings, verify_url)     # 안전한 수동 recon
         layers.append("blackbox")
-        if a.active or os.environ.get("SAST_ACTIVE"):       # 능동 DAST (인가 대상 전용)
+        if a.active or os.environ.get("SAST_ACTIVE"):       # 경량 능동 DAST (내장, 의존성 0)
             print("[!] 능동 DAST 모드 — 인가된 대상에만! 실제 탐지 payload 를 전송합니다.")
             findings = findings + active.scan(verify_url)
             layers.append("active-dast")
+        if a.zap or os.environ.get("SAST_ZAP"):             # ZAP DAST (성숙 엔진, spider+ascan)
+            print("[!] ZAP DAST — 인가된 대상에만! spider+active scan 을 수행합니다.")
+            findings = zap.scan(verify_url, findings)
+            layers.append("zap-dast")
 
     src = target if have_repo else (verify_url or "")
     res = report.build(name, src, engines or ["blackbox"], findings, out,
@@ -84,7 +88,8 @@ def main(argv=None):
     sc.add_argument("--online", action="store_true", help="개방망: 2·3계층(LLM) 활성화")
     sc.add_argument("--no-triage", action="store_true", help="1계층 오프라인 트리아지 끄기")
     sc.add_argument("--verify", default=None, metavar="URL", help="블랙박스: 라이브 URL 점검(수동)")
-    sc.add_argument("--active", action="store_true", help="능동 DAST(인가 대상 전용, 탐지 payload 주입)")
+    sc.add_argument("--active", action="store_true", help="경량 능동 DAST(내장, 인가 전용)")
+    sc.add_argument("--zap", action="store_true", help="ZAP DAST(성숙 엔진 spider+ascan, 인가 전용)")
     sc.add_argument("--cookie", default=None, help="DAST 요청 쿠키(예: 'PHPSESSID=..')")
     sc.add_argument("--header", action="append", default=[], metavar="'N: V'", help="DAST 커스텀 헤더(반복 가능)")
     sc.set_defaults(func=cmd_scan)

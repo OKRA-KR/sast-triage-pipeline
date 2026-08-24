@@ -17,7 +17,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 TARGETS="$ROOT/targets"; OUTBASE="$ROOT/out"
 mkdir -p "$TARGETS" "$OUTBASE"
 
-ARG=""; DEEP=""; VERIFY=""; ONLINE=""; ACTIVE=""; COOKIE=""
+ARG=""; DEEP=""; VERIFY=""; ONLINE=""; ACTIVE=""; COOKIE=""; ZAP=""
 # 옵션 파싱: --deep, --online, --active, --verify <URL>, --cookie <쿠키>
 prev=""
 for a in "$@"; do
@@ -27,6 +27,7 @@ for a in "$@"; do
     --deep) DEEP=1 ;;
     --online) ONLINE=1 ;;
     --active) ACTIVE=1 ;;
+    --zap) ZAP=1 ;;
     --verify) prev="--verify" ;;
     --cookie) prev="--cookie" ;;
     *) [ -z "$ARG" ] && ARG="$a" ;;
@@ -41,6 +42,7 @@ fi
 if [ -z "$ARG" ]; then
   NAME="$(echo "$VERIFY" | sed -E 's#https?://##; s#[:/].*##')"; OUT="$OUTBASE/$NAME"
   EXTRA="--verify $VERIFY"; [ -n "$ACTIVE" ] && EXTRA="$EXTRA --active" && echo "[!] 능동 DAST — 인가 대상 전용"
+  [ -n "$ZAP" ] && EXTRA="$EXTRA --zap" && echo "[!] ZAP DAST — 인가 대상 전용"
   [ -n "$COOKIE" ] && export SAST_HTTP_COOKIE="$COOKIE" && echo "[*] 세션 쿠키 주입됨"
   echo "[*] URL 전용 점검: $VERIFY  →  $OUT"
   ( cd "$ROOT" && python3 -m sast scan --out "$OUT" --name "$NAME" $EXTRA )
@@ -75,6 +77,7 @@ echo "[*] 출력: $OUT"
 EXTRA=""
 [ -n "$VERIFY" ] && EXTRA="$EXTRA --verify $VERIFY" && echo "[*] 블랙박스 점검 대상: $VERIFY"
 [ -n "$ACTIVE" ] && EXTRA="$EXTRA --active" && echo "[!] 능동 DAST — 인가 대상 전용"
+[ -n "$ZAP" ] && EXTRA="$EXTRA --zap" && echo "[!] ZAP DAST — 인가 대상 전용"
 [ -n "$COOKIE" ] && export SAST_HTTP_COOKIE="$COOKIE" && echo "[*] 세션 쿠키 주입됨"
 [ -n "$ONLINE" ] && EXTRA="$EXTRA --online" && echo "[*] 개방망 모드: 2·3계층(LLM) 활성화 시도"
 ( cd "$ROOT" && python3 -m sast scan "$TARGET" --out "$OUT" --name "$NAME" $EXTRA )

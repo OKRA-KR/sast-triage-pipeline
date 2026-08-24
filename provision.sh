@@ -52,6 +52,17 @@ if [ ! -x "$TOOLS/codeql/codeql" ]; then
     && ok "codeql 번들 → tools/codeql" || warn "codeql 실패"
 else ok "codeql (이미 있음)"; fi
 
+# 3.5) OWASP ZAP (DAST 엔진 — spider+AJAX+active scan)
+if [ ! -x "$TOOLS/zap/zap.sh" ]; then
+  echo "[*] OWASP ZAP …(~250MB)"
+  zurl=$(curl -s https://api.github.com/repos/zaproxy/zaproxy/releases/latest \
+        | grep -oE "https://[^\"]*ZAP_[0-9.]+_Linux.tar.gz" | head -1)
+  if [ -n "$zurl" ]; then
+    curl -sL "$zurl" -o /tmp/_zap.tgz && tar -xzf /tmp/_zap.tgz -C "$TOOLS" && rm -f /tmp/_zap.tgz \
+      && ln -sfn "$(ls -d "$TOOLS"/ZAP_* | head -1)" "$TOOLS/zap" && ok "ZAP → tools/zap" || warn "ZAP 실패"
+  fi
+else ok "ZAP (이미 있음)"; fi
+
 # 4) (선택) 로컬 LLM: Ollama + 소형 모델
 if [ -n "$WITH_LLM" ]; then
   echo "[*] Ollama + 모델 …(용량 큼)"

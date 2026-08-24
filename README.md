@@ -23,6 +23,7 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ./sast-run.sh --verify <URL>                 # 소스 없이 URL 전용 점검(블랙박스)
 ./sast-run.sh --verify <URL> --active        # URL 능동 DAST (인가 대상 전용, payload 주입)
 ./sast-run.sh --verify <URL> --active --cookie 'PHPSESSID=..'   # 세션 쿠키로 인증된 상태 점검
+./sast-run.sh --verify <URL> --zap --cookie 'PHPSESSID=..'      # ZAP DAST(spider+AJAX+active scan, ZAP급)
 #   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명   (대상 생략 + --verify = URL 전용)
 ```
 
@@ -137,7 +138,8 @@ sast/                     코어 (stdlib 전용, 오프라인)
   layer2.py               2계층: LLM 트리아지 (개방망 전용)
   layer3.py               3계층: LLM 심화 — PoC/공격포인트/조치 (개방망 전용)
   blackbox.py             Track B: 라이브 URL 엔드포인트→공격포인트, 수동 recon (LLM 불필요)
-  active.py               Track B 능동 DAST: 크롤+탐지 payload 주입 (--active, 인가 전용)
+  active.py               Track B 경량 능동 DAST: 크롤+payload 주입 (--active, 의존성0)
+  zap.py                  Track B ZAP DAST: OWASP ZAP 구동+alert 정규화 (--zap, ZAP급)
   report.py               results.json(sast-results/2) + 대시보드 생성
   cli.py                  python3 -m sast scan <target> --out <dir> [--online] [--verify URL]
 dashboard.template.html   넓은(1400px) 자체완결 뷰어
