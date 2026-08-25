@@ -28,8 +28,20 @@ def _mask(s):
     return (s[0] + "*" * (len(s) - 1)) if s else ""
 
 
-def derive_login(exchanges):
-    """캡처에서 로그인 요청 추론 → (exchange, user_key, pw_key). 없으면 None."""
+_LOGIN_WORDS = ("login", "signin", "logon", "auth")
+# 로그인 아닌 '비번성 키 보유' 요청(회원가입/비번변경/프로필수정 등) — 오선택 방지용 감점
+_NEG_WORDS = ("logout", "register", "signup", "join", "save", "insert", "update",
+              "modify", "change", "edit", "profile", "mypage", "find", "reset", "withdraw")
+
+
+def derive_login(exchanges, explicit_url=None):
+    """캡처에서 로그인 요청 추론 → (exchange, user_key, pw_key). 없으면 None.
+
+    비번성 키를 가진 첫 요청을 무조건 택하지 않는다(회원가입/비번변경 오선택 방지).
+    후보를 스코어링해 최적 1건 선택: SAST_LOGIN_URL 명시 > POST+login경로+user/pw 동시.
+    """
+    explicit_url = explicit_url or os.environ.get("SAST_LOGIN_URL")
+    best, best_score = None, None
     for ex in exchanges:
         pairs = list(ex["query"]) + [(k, v) for k, v, _ in _body_params(ex)]
         names = [k for k, _ in pairs]
@@ -37,10 +49,23 @@ def derive_login(exchanges):
         if not pk:
             continue
         uk = next((n for n in names if _USER_KEYS.match(n) and n != pk), None)
-        pathish = any(w in ex["path"].lower() for w in ("login", "auth", "signin", "logon"))
-        if uk and (pathish or True):
-            return {"ex": ex, "user_key": uk, "pw_key": pk}
-    return None
+        if not uk:
+            continue
+        p = ex["path"].lower()
+        score = 0
+        if explicit_url and explicit_url in ex["url"]:
+            score += 100
+        if ex["method"] == "POST":
+            score += 2
+        if any(w in p for w in _LOGIN_WORDS):
+            score += 5
+        if any(w in p for w in _NEG_WORDS):
+            score -= 4                       # 회원가입/비번변경/프로필 등 감점
+        if len(names) <= 4:
+            score += 1                       # 로그인은 보통 파라미터가 적다(id/pw/mode)
+        if best_score is None or score > best_score:
+            best_score, best = score, {"ex": ex, "user_key": uk, "pw_key": pk, "score": score}
+    return best
 
 
 def _cookie_from(headers):
