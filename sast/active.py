@@ -192,6 +192,32 @@ def scan(base_url):
     return findings
 
 
+def scan_endpoints(base_url, eps):
+    """패시브로 식별한 엔드포인트(메서드+경로+파라미터)를 직접 겨냥한 정밀 능동 점검.
+    blind 크롤 대신 실제 파라미터에만 payload 주입 → 정밀도↑ 요청수↓. 인가 대상 전용."""
+    origin = "{0.scheme}://{0.netloc}".format(urlparse(base_url))
+    print(f"[*] 능동 DAST(엔드포인트 타깃): {origin} · 엔드포인트 {len(eps)}개")
+    findings, seen_pt = [], set()
+    for e in eps:
+        url = origin + e["path"]
+        post = e["method"] in ("POST", "PUT", "PATCH")
+        for key, locs in e["params"].items():
+            pt = (e["method"], e["path"], key)
+            if pt in seen_pt:
+                continue
+            seen_pt.add(pt)
+            names = list(e["params"].keys())
+            def fw(pay, redirect=True, u=url, k=key, names=names, post=post):
+                data = {n: (pay if n == k else "1") for n in names}
+                if post:
+                    return _fetch(u, redirect=redirect, data=data)
+                return _fetch(u + "?" + urlencode(data), redirect=redirect)
+            for cat, sev, payload, ev in _probe_point(fw):
+                findings.append(_finding(cat, sev, url + f" [{e['method']}]", key, payload, ev, form=post))
+    print(f"[*] 능동 DAST(타깃): 요청 {_req_count[0]}건 · 확증 {len(findings)}건")
+    return findings
+
+
 def _finding(cat, sev, url, param, payload, ev, form=False):
     return new_finding(
         fingerprint="dast-active-" + cat + "-" + re.sub(r"\W+", "", url)[-30:] + "-" + param,

@@ -10,6 +10,7 @@ Track A (Repo 있음)  → SAST
   2계층 [개방망 전용·외부통신]      LLM 트리아지 — 오탐/정탐 판별·근거
   3계층 [개방망 전용·외부통신]      LLM 심화 — 공격구문(PoC)·공격포인트·조치 생성
 Track B (Repo 없음)  → 블랙박스     라이브 URL 엔드포인트 식별 → 공격 가능 포인트 (stdlib, LLM 불필요)
+Track C (캡처 파일)  → 패시브 분석  Burp/HAR 오프라인 파싱 → 엔드포인트 인벤토리(CSV)+취약점 (패킷0)
 ```
 
 **환경 게이팅**: 기본 **폐쇄망(offline)** → 1계층만(외부통신 0). `--online`(또는 `SAST_ONLINE=1`) +
@@ -24,7 +25,9 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ./sast-run.sh --verify <URL> --active        # URL 능동 DAST (인가 대상 전용, payload 주입)
 ./sast-run.sh --verify <URL> --active --cookie 'PHPSESSID=..'   # 세션 쿠키로 인증된 상태 점검
 ./sast-run.sh --verify <URL> --okra --cookie 'PHPSESSID=..'     # OKRA DAST(엔진 OWASP ZAP: spider+AJAX+active scan + 중요정보 스캔)
-#   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명   (대상 생략 + --verify = URL 전용)
+./sast-run.sh --capture capture.xml                            # 패시브: Burp/HAR 오프라인 분석 → endpoints.csv + 취약점(패킷0)
+./sast-run.sh --capture capture.xml --active                   # + 식별된 엔드포인트 정밀 능동 점검(인가 전용, 패킷 전송)
+#   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명   (대상 생략 + --verify/--capture = 소스 없이 점검)
 ```
 
 LLM 계층 설정: `SAST_LLM_KEY`(필수), `SAST_LLM_ENDPOINT`(기본 Anthropic), `SAST_LLM_MODEL`(기본 claude-opus-5).
@@ -80,8 +83,11 @@ CVSS 기반 심각도, 수정본 버전, CVE 태그 포함. CLI 위치: `OSV_SCA
 | **블랙박스**(Track B) | 라이브 URL 엔드포인트→공격포인트(수동 recon) | ✗ (내부망) | URL 있을 때 | `--verify <URL>` / `SAST_NO_VERIFY=1` |
 | **능동 DAST**(Track B) | URL 크롤→파라미터에 탐지 payload 주입(SQLi/XSS/SSTI/경로/리다이렉트) | ✗ (내부망) | off | `--active` (**인가 대상 전용**) |
 | **OKRA DAST**(Track B) | OWASP ZAP 엔진(spider+AJAX+active scan) + **응답 본문 중요정보(주민번호·카드·토큰) 스캔** | ✗ (내부망, ZAP 반입) | off | `--okra` (**인가 대상 전용**) |
+| **패시브 분석**(Track C) | 캡처(Burp/HAR) 오프라인 파싱 → 엔드포인트 인벤토리(CSV) + 보안헤더·쿠키플래그·응답 중요정보·URL 자격증명·verbose오류·CORS·계정열거·IDOR후보·CSRF부재 | ✓ (**패킷 0**) | off | `--capture <파일>` |
+| **↳ 타깃 능동**(Track C) | 식별한 엔드포인트/파라미터에만 payload 정밀 주입(blind 크롤 대신) | ✗ (내부망) | off | `--capture <파일> --active` (**인가 전용**) |
 
 - **OKRA DAST**: 성숙한 스캔 엔진으로 [OWASP ZAP](https://www.zaproxy.org/)(Apache-2.0)을 구동하고, alert 를 유형별로 집계·정규화한 뒤 **ZAP 이 못 하는 국내 컴플라이언스 중요정보**(주민번호 체크섬·카드 Luhn·PAT·DB 자격증명)를 라이브 응답 본문에서 추가 탐지한다(OKRA 1계층 secrets 엔진 재사용). ZAP 은 오프라인 Java 앱이라 폐쇄망 반입 가능. 엔진 크레딧: OWASP ZAP.
+- **패시브 분석(Track C)**: 현장에서 프록시로 **이미 확보한 캡처**(Burp items XML / HAR)를 오프라인 파싱해 **패킷 한 개도 안 쏘고** ① 대상 엔드포인트 전체를 식별(메서드·경로·파라미터·인증여부·상태변경) → `endpoints.csv`, ② 실제 요청/응답에서 관측되는 취약점을 룰로 탐지한다. 크롤러가 못 찾는 POST API·JS 뒤 파라미터까지 잡히므로, 이 인벤토리를 `--active` 로 그대로 **정밀 능동 점검**(식별된 파라미터에만 payload 주입 → blind 크롤 대비 정밀도↑·요청수↓)에 넘길 수 있다. 사내 스캐너 트래픽 제약이 있는 폐쇄망에서 캡처만으로 1계층을 돌리는 핵심 경로.
 - **폐쇄망**: 기본값이 offline 이라 2·3계층이 실행조차 안 됨 → 1계층(+선택 블랙박스)만.
 - **개방망**: `--online` + LLM 키가 있어야 2·3계층이 돈다. 하나라도 없으면 자동 건너뜀(안전).
 - 블랙박스는 LLM 불필요 — 소스가 없거나(Track B) SAST 와 병행해 라이브 확증에 쓴다(GET 전용, 시그니처로 오탐 억제).
@@ -142,6 +148,7 @@ sast/                     코어 (stdlib 전용, 오프라인)
   blackbox.py             Track B: 라이브 URL 엔드포인트→공격포인트, 수동 recon (LLM 불필요)
   active.py               Track B 경량 능동 DAST: 크롤+payload 주입 (--active, 의존성0)
   okra.py                 Track B OKRA DAST: OWASP ZAP(Apache-2.0) 구동+alert 정규화 + 응답 본문 중요정보 스캔 (--okra)
+  capture.py              Track C 패시브 분석: Burp/HAR 파싱→엔드포인트 인벤토리(CSV)+오프라인 룰 (--capture, 패킷0)
   report.py               results.json(sast-results/2) + 대시보드 생성
   cli.py                  python3 -m sast scan <target> --out <dir> [--online] [--verify URL]
 dashboard.template.html   넓은(1400px) 자체완결 뷰어

@@ -8,7 +8,7 @@ Track B (Repo 없음)  → 블랙박스: 라이브 URL 엔드포인트 식별 �
 """
 import argparse, os, sys
 from .engines import run_all
-from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, report, env
+from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, capture, report, env
 
 
 def cmd_scan(a):
@@ -25,7 +25,8 @@ def cmd_scan(a):
     target = os.path.abspath(a.target) if a.target else None
     have_repo = bool(target and os.path.isdir(target))
     name = a.name or (os.path.basename(target.rstrip("/\\")) if have_repo
-                      else (verify_url.split("//")[-1].split("/")[0] if verify_url else "scan"))
+                      else (verify_url.split("//")[-1].split("/")[0] if verify_url
+                            else (os.path.splitext(os.path.basename(a.capture))[0] if a.capture else "scan")))
 
     findings, engines, layers = [], [], []
 
@@ -53,8 +54,37 @@ def cmd_scan(a):
             findings = layer3.deepen(findings); layers.append("llm-deepen")
         else:
             print("[*] 2·3계층(LLM) OFF — LLM 미설정 (SAST_LLM_ENDPOINT 또는 SAST_LLM_KEY)")
-    elif not verify_url:
-        print(f"[!] 대상 경로가 없고 --verify 도 없습니다: {a.target}"); return 2
+    elif not verify_url and not (a.capture or os.environ.get("SAST_CAPTURE")):
+        print(f"[!] 대상 경로가 없고 --verify/--capture 도 없습니다: {a.target}"); return 2
+
+    # ── Track C : 패시브 트래픽 분석 (오프라인, 패킷 0) ──────────
+    cap = a.capture or os.environ.get("SAST_CAPTURE")
+    if cap:
+        if not os.path.isfile(cap):
+            print(f"[!] 캡처 파일 없음: {cap}"); return 2
+        print(f"[*] 패시브 분석: {cap}  (오프라인 · 패킷 0 · 환경: {env.mode_label()})")
+        try:
+            exs = capture.parse(cap)
+        except Exception as e:
+            print(f"[!] 캡처 파싱 실패: {e}"); return 2
+        inv = capture.endpoints(exs)
+        capture.write_endpoints_csv(inv, os.path.join(out, "endpoints.csv"))
+        print(f"[*] 엔드포인트 {len(inv)}개 식별 → {out}/endpoints.csv")
+        findings = findings + capture.passive_scan(exs)
+        layers.append("passive")
+        if not engines:
+            engines = ["passive"]
+        # 캡처의 엔드포인트를 그대로 겨냥한 정밀 능동 점검(패킷 전송 → 인가 전용, 옵트인)
+        if a.active or os.environ.get("SAST_ACTIVE"):
+            base = verify_url or (exs and f"{exs[0]['scheme']}://{exs[0]['host']}") or ""
+            if base:
+                if not os.environ.get("SAST_HTTP_COOKIE"):
+                    ck = capture.cookie_from(exs)
+                    if ck:
+                        os.environ["SAST_HTTP_COOKIE"] = ck; print("[*] 캡처 세션 쿠키 재사용")
+                print("[!] 능동 DAST(엔드포인트 타깃) — 인가된 대상에만! payload 를 전송합니다.")
+                findings = findings + active.scan_endpoints(base, inv)
+                layers.append("active-targeted")
 
     # ── Track B : 블랙박스 (라이브 URL) ─────────────────────────
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
@@ -69,7 +99,7 @@ def cmd_scan(a):
             findings = okra.scan(verify_url, findings)
             layers.append("okra-dast")
 
-    src = target if have_repo else (verify_url or "")
+    src = target if have_repo else (verify_url or cap or "")
     res = report.build(name, src, engines or ["blackbox"], findings, out,
                        mode="+".join(layers) + f" [{env.mode_label()}]")
     s = res["summary"]
@@ -88,6 +118,8 @@ def main(argv=None):
     sc.add_argument("--online", action="store_true", help="개방망: 2·3계층(LLM) 활성화")
     sc.add_argument("--no-triage", action="store_true", help="1계층 오프라인 트리아지 끄기")
     sc.add_argument("--verify", default=None, metavar="URL", help="블랙박스: 라이브 URL 점검(수동)")
+    sc.add_argument("--capture", default=None, metavar="FILE",
+                    help="패시브 분석: Burp items XML/HAR 캡처(오프라인, 패킷0) → 엔드포인트 CSV+취약점")
     sc.add_argument("--active", action="store_true", help="경량 능동 DAST(내장, 인가 전용)")
     sc.add_argument("--okra", "--zap", dest="okra", action="store_true",
                     help="OKRA DAST(ZAP 엔진 spider+ascan + 중요정보 스캔, 인가 전용)")

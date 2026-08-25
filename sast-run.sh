@@ -17,12 +17,13 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 TARGETS="$ROOT/targets"; OUTBASE="$ROOT/out"
 mkdir -p "$TARGETS" "$OUTBASE"
 
-ARG=""; DEEP=""; VERIFY=""; ONLINE=""; ACTIVE=""; COOKIE=""; OKRA=""
-# 옵션 파싱: --deep, --online, --active, --verify <URL>, --cookie <쿠키>
+ARG=""; DEEP=""; VERIFY=""; ONLINE=""; ACTIVE=""; COOKIE=""; OKRA=""; CAPTURE=""
+# 옵션 파싱: --deep, --online, --active, --verify <URL>, --cookie <쿠키>, --capture <파일>
 prev=""
 for a in "$@"; do
   if [ "$prev" = "--verify" ]; then VERIFY="$a"; prev=""; continue; fi
   if [ "$prev" = "--cookie" ]; then COOKIE="$a"; prev=""; continue; fi
+  if [ "$prev" = "--capture" ]; then CAPTURE="$a"; prev=""; continue; fi
   case "$a" in
     --deep) DEEP=1 ;;
     --online) ONLINE=1 ;;
@@ -30,23 +31,33 @@ for a in "$@"; do
     --okra|--zap) OKRA=1 ;;
     --verify) prev="--verify" ;;
     --cookie) prev="--cookie" ;;
+    --capture) prev="--capture" ;;
     *) [ -z "$ARG" ] && ARG="$a" ;;
   esac
 done
-# 대상(소스) 없이 --verify 만 있으면 URL 전용(블랙박스/능동) 모드
-if [ -z "$ARG" ] && [ -z "$VERIFY" ]; then
+# 대상(소스) 없이 --verify/--capture 만 있으면 URL 전용/패시브 모드
+if [ -z "$ARG" ] && [ -z "$VERIFY" ] && [ -z "$CAPTURE" ]; then
   echo "사용법: ./sast-run.sh <경로|gitURL|owner/repo|폴더명> [--deep] [--online] [--verify <URL> [--active]]"
-  echo "   또는: ./sast-run.sh --verify <URL> [--active]   # 소스 없이 URL 점검"
+  echo "   또는: ./sast-run.sh --verify <URL> [--active]        # 소스 없이 URL 점검"
+  echo "   또는: ./sast-run.sh --capture <Burp/HAR> [--active]  # 캡처 패시브 분석(패킷0)"
   exit 1
 fi
 if [ -z "$ARG" ]; then
-  NAME="$(echo "$VERIFY" | sed -E 's#https?://##; s#[:/].*##')"; OUT="$OUTBASE/$NAME"
-  EXTRA="--verify $VERIFY"; [ -n "$ACTIVE" ] && EXTRA="$EXTRA --active" && echo "[!] 능동 DAST — 인가 대상 전용"
+  if [ -n "$VERIFY" ]; then
+    NAME="$(echo "$VERIFY" | sed -E 's#https?://##; s#[:/].*##')"; EXTRA="--verify $VERIFY"
+    echo "[*] URL 전용 점검: $VERIFY"
+  else
+    NAME="$(basename "$CAPTURE" | sed -E 's#\.[^.]+$##')"; EXTRA="--capture $CAPTURE"
+    echo "[*] 패시브 캡처 분석(패킷0): $CAPTURE"
+  fi
+  OUT="$OUTBASE/$NAME"
+  [ -n "$CAPTURE" ] && [ -n "$VERIFY" ] && EXTRA="$EXTRA --capture $CAPTURE"
+  [ -n "$ACTIVE" ] && EXTRA="$EXTRA --active" && echo "[!] 능동 DAST — 인가 대상 전용"
   [ -n "$OKRA" ] && EXTRA="$EXTRA --okra" && echo "[!] OKRA DAST — 인가 대상 전용"
   [ -n "$COOKIE" ] && export SAST_HTTP_COOKIE="$COOKIE" && echo "[*] 세션 쿠키 주입됨"
-  echo "[*] URL 전용 점검: $VERIFY  →  $OUT"
+  echo "[*] 출력: $OUT"
   ( cd "$ROOT" && python3 -m sast scan --out "$OUT" --name "$NAME" $EXTRA )
-  echo "완료: $OUT/index.html"; exit 0
+  echo "완료: $OUT/index.html  (엔드포인트: $OUT/endpoints.csv)"; exit 0
 fi
 if [ -n "$DEEP" ]; then export SAST_DEEP=1 SAST_CODEQL_CACHE=1; echo "[*] deep 모드: CodeQL(taint) 포함"; fi
 
@@ -76,6 +87,7 @@ echo "[*] 대상: $TARGET"
 echo "[*] 출력: $OUT"
 EXTRA=""
 [ -n "$VERIFY" ] && EXTRA="$EXTRA --verify $VERIFY" && echo "[*] 블랙박스 점검 대상: $VERIFY"
+[ -n "$CAPTURE" ] && EXTRA="$EXTRA --capture $CAPTURE" && echo "[*] 패시브 캡처 분석: $CAPTURE"
 [ -n "$ACTIVE" ] && EXTRA="$EXTRA --active" && echo "[!] 능동 DAST — 인가 대상 전용"
 [ -n "$OKRA" ] && EXTRA="$EXTRA --okra" && echo "[!] OKRA DAST — 인가 대상 전용"
 [ -n "$COOKIE" ] && export SAST_HTTP_COOKIE="$COOKIE" && echo "[*] 세션 쿠키 주입됨"
