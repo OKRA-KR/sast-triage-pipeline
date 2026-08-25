@@ -44,6 +44,8 @@ def apply(findings, rules=None):
                 f["rationale"] = (f.get("rationale") or "") + f"[강등] {d.get('reason','')}"
                 break
 
-        # 4) 오프라인 판정: 확정은 LLM/동적검증 몫 → 기본 검토필요
-        f["verdict"] = "needs_review"
+        # 4) 오프라인 판정: 정적(SAST) 발견은 확정을 LLM/동적검증에 맡겨 '검토필요'로.
+        #    동적으로 관측·확증된 발견(DAST/PASSIVE/OKRA, dynamic 필드 보유)은 그 판정을 보존.
+        if f.get("source", "SAST") == "SAST" and not f.get("dynamic"):
+            f["verdict"] = "needs_review"
     return findings

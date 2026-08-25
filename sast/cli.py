@@ -38,27 +38,12 @@ def cmd_scan(a):
             print("[!] 사용 가능한 엔진이 없습니다 (semgrep 설치 필요)"); return 3
         print(f"[*] 엔진: {', '.join(engines)}  원시 {len(findings)}건")
         layers.append("layer1")
-
-        # 1계층 내부: 오프라인 트리아지(억제/심각도) + 교차검증 (외부통신 없음)
-        if a.no_triage or os.environ.get("SAST_NO_TRIAGE"):
-            print("[*] 오프라인 트리아지 OFF")
-        else:
-            rules = triage.load_rules()
-            triage.apply(findings, rules)
-            crossval.apply(findings, rules)
-            playbook.enrich(findings)     # ctf-web 기반 공격구문/조치(오프라인)
-
-        # 2·3계층: LLM 트리아지 + 심화 (LLM 있을 때만 — 로컬 LLM 이면 폐쇄망서도 가능)
-        if env.layer2_enabled():
-            findings = layer2.triage(findings); layers.append("llm-triage")
-            findings = layer3.deepen(findings); layers.append("llm-deepen")
-        else:
-            print("[*] 2·3계층(LLM) OFF — LLM 미설정 (SAST_LLM_ENDPOINT 또는 SAST_LLM_KEY)")
     elif not verify_url and not (a.capture or os.environ.get("SAST_CAPTURE")):
         print(f"[!] 대상 경로가 없고 --verify/--capture 도 없습니다: {a.target}"); return 2
 
     # ── Track C : 패시브 트래픽 분석 (오프라인, 패킷 0) ──────────
     cap = a.capture or os.environ.get("SAST_CAPTURE")
+    exs = None
     if cap:
         if not os.path.isfile(cap):
             print(f"[!] 캡처 파일 없음: {cap}"); return 2
@@ -74,9 +59,6 @@ def cmd_scan(a):
         layers.append("passive")
         if not engines:
             engines = ["passive"]
-        # SAST↔캡처 상관(P2) — Track A 발견이 있으면 실트래픽으로 도달확인/확증
-        if have_repo:
-            correlate.apply(findings, exs); layers.append("correlate")
         # 캡처의 엔드포인트를 그대로 겨냥한 정밀 능동 점검(패킷 전송 → 인가 전용, 옵트인)
         if a.active or os.environ.get("SAST_ACTIVE"):
             base = verify_url or (exs and f"{exs[0]['scheme']}://{exs[0]['host']}") or ""
@@ -101,6 +83,27 @@ def cmd_scan(a):
             print("[!] OKRA DAST — 인가된 대상에만! spider+active scan + 중요정보 스캔을 수행합니다.")
             findings = okra.scan(verify_url, findings)
             layers.append("okra-dast")
+
+    # ── 1계층 마무리: 오프라인 트리아지 (외부통신 0 — 폐쇄망서도 자립 완결) ──
+    # 입력이 소스/URL/캡처 무엇이든, 모인 모든 발견에 동일하게 적용된다.
+    if findings and not (a.no_triage or os.environ.get("SAST_NO_TRIAGE")):
+        rules = triage.load_rules()
+        triage.apply(findings, rules)               # 억제/심각도(sev_lock 존중)
+        crossval.apply(findings, rules)             # taint 엔진 없으면 자동 no-op
+        if have_repo and exs:                       # P2: SAST↔캡처 상관(도달확인/확증)
+            correlate.apply(findings, exs); layers.append("correlate")
+        playbook.enrich(findings)                   # 공격구문/조치 부여(오프라인)
+        layers.append("triage")
+    elif findings:
+        print("[*] 오프라인 트리아지 OFF")
+
+    # ── 2·3계층: LLM 정오탐 판별 + 심화 (개방망·LLM 설정 시만; 폐쇄망이면 자동 skip) ──
+    if findings and env.layer2_enabled():
+        print(f"[*] 2·3계층(LLM) — {env.mode_label()} · 대상 {len([f for f in findings if not f.get('suppressed')])}건")
+        findings = layer2.triage(findings); layers.append("llm-triage")
+        findings = layer3.deepen(findings); layers.append("llm-deepen")
+    elif findings:
+        print("[*] 2·3계층(LLM) OFF — LLM 미설정(SAST_LLM_ENDPOINT/SAST_LLM_KEY). 1계층 결과로 완결.")
 
     src = target if have_repo else (verify_url or cap or "")
     res = report.build(name, src, engines or ["blackbox"], findings, out,
