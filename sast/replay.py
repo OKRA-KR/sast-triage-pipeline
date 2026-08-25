@@ -111,6 +111,18 @@ def _resp_len(r):
     return len(r[2]) if r else 0
 
 
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_KRPHONE = re.compile(r"01[016-9]-?\d{3,4}-?\d{4}")
+_NUMID = re.compile(r"\b\d{5,}\b")
+
+
+def _data_tokens(body):
+    """응답 본문에서 계정 고유 식별 데이터 후보 추출(이메일·휴대폰·장자리 숫자 id)."""
+    body = body or ""
+    toks = set(_EMAIL.findall(body)[:10]) | set(_KRPHONE.findall(body)[:10]) | set(_NUMID.findall(body)[:10])
+    return {t for t in toks if len(t) >= 4}
+
+
 def _blocked(r):
     """접근 차단(정상 authz) 신호: 403/401, 로그인 리다이렉트, 로그인 화면."""
     if not r:
@@ -156,18 +168,31 @@ def scan_capture(exchanges, session=None, session_b=None):
             continue
         bl = _resp_len(base)
 
-        # ── 2계정 권한검증(IDOR 확증): A 의 요청을 B 세션으로 재전송 → B 가 A 데이터 받으면 수평권한상승 ──
-        if session_b and _idor_worthy(ex) and not _blocked(base) and bl > 50:
+        # ── 2계정 권한검증(IDOR): A 요청을 B 세션으로 재전송 → B 응답에 'A 고유 토큰'이 있어야 확정 ──
+        # 길이 유사만으로는 세션결정형(/api/mypage 처럼 id 무시하고 자기 데이터 반환) 오탐이 남는다.
+        a_ids = [str(v) for k, v, _ in _params(ex) if _IDOR_NAME.search(k) and str(v).strip()]
+        if session_b and _idor_worthy(ex) and not _blocked(base) and bl > 50 and a_ids:
+            a_tokens = {t for t in (a_ids + list(_data_tokens(base[2]))) if len(t) >= 4}
             hb = _headers_for(ex, session_b.cookie)
             rb = _send(ex["method"], ex["url"], hb, ex["req_body"] or None)
-            if rb and not _blocked(rb) and 200 <= rb[0] < 300 and abs(_resp_len(rb) - bl) < max(80, 0.15 * bl):
-                f = _f("idor", "high", ex, "(계정간)", "B 세션으로 A 요청 재전송",
-                       f"타 계정({session_b.label}) 세션이 A({session.label}) 데이터 획득(200, len {bl}≈{_resp_len(rb)}) — 접근통제 실패",
-                       "true_positive")
-                f["confidence"] = 0.9
-                f["rationale"] = ("두 계정 교차확증: 계정 B 세션으로 계정 A 의 요청을 재전송했을 때 차단 없이 "
-                                  "A 의 데이터가 반환됨 → 객체수준 접근통제(BOLA/IDOR) 확정.")
-                add(f)
+            if rb and not _blocked(rb) and 200 <= rb[0] < 300 and _resp_len(rb) > 50:
+                hit = sorted(t for t in a_tokens if t in rb[2])[:3]
+                if hit:
+                    f = _f("idor", "high", ex, "(계정간)", "B세션이 A데이터 획득",
+                           f"타 계정({session_b.label}) 세션이 A({session.label}) 데이터 획득 — A 식별토큰 {hit} 이 B 응답에 존재",
+                           "true_positive")
+                    f["confidence"] = 0.9
+                    f["rationale"] = ("2계정 교차확증: B 세션으로 A 요청 재전송 시 A 고유 식별자가 B 응답 본문에 존재 "
+                                      "→ 객체수준 접근통제(BOLA/IDOR) 확정.")
+                    add(f)
+                else:
+                    f = _f("idor", "medium", ex, "(계정간)", "B세션 접근가능·A토큰 미검출",
+                           f"B({session_b.label}) 세션이 엔드포인트 200(데이터형)이나 A 고유 토큰 미검출 — 세션결정형 여부 수동 확인",
+                           "needs_review")
+                    f["confidence"] = 0.4
+                    f["rationale"] = ("B 세션이 접근은 되나 A 고유 식별자가 응답에 없음 → 세션이 객체를 결정하는 "
+                                      "엔드포인트일 수 있음(IDOR 아님 가능). 객체참조 파라미터 조작으로 수동 확인 권장.")
+                    add(f)
         for key, val, loc in _params(ex):
             val = val or "1"
             # ── SQLi: 오류 시그니처 ──
