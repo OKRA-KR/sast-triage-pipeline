@@ -6,7 +6,7 @@
 
 ```
 Track A (Repo 있음)  → SAST
-  1계층 [오프라인·폐쇄망 baseline]  룰 4엔진(semgrep·secrets·sca·codeql) + 오프라인 트리아지(suppress/crossval)
+  1계층 [오프라인·폐쇄망 baseline]  룰 4엔진(semgrep+커스텀룰·secrets+엔트로피/구조검증·sca·codeql) + 오프라인 트리아지(suppress/crossval/상관)
   2계층 [개방망 전용·외부통신]      LLM 트리아지 — 오탐/정탐 판별·근거
   3계층 [개방망 전용·외부통신]      LLM 심화 — 공격구문(PoC)·공격포인트·조치 생성
 Track B (Repo 없음)  → 블랙박스     라이브 URL 엔드포인트 식별 → 공격 가능 포인트 (stdlib, LLM 불필요)
@@ -60,8 +60,14 @@ CVSS 기반 심각도, 수정본 버전, CVE 태그 포함. CLI 위치: `OSV_SCA
 **국내외 컴플라이언스 중요정보**: 주민등록번호(체크섬 검증)·운전면허·여권번호(개인정보보호법
 고유식별정보), 신용카드번호(Luhn 검증, PCI-DSS), US-SSN 등. 패턴은 `rules/secrets_patterns.json`
 (데이터 주도, 컴플라이언스 태그 포함). 오탐 억제: 카드/주민번호 유효성 검증 + 플레이스홀더·`process.env`
-제외. 탐지값은 **마스킹**해서 표시(평문 노출 방지). 끄기: `SAST_NO_SECRETS=1`, 저위험 패턴(전화/이메일)
-켜기: `SAST_SECRETS_ALL=1`.
+제외 + **엔트로피 게이트**(`entropy_min` — 저무작위성 사전어/반복값 제외) + **구조검증**(JWT=3파트+헤더 JSON
+디코드, AWS=예제키/저다양성 제외; 네트워크 검증은 폐쇄망이라 OFF). 탐지값은 **마스킹**해서 표시(평문 노출 방지).
+끄기: `SAST_NO_SECRETS=1`, 저위험 패턴(전화/이메일) 켜기: `SAST_SECRETS_ALL=1`.
+
+**OKRA 커스텀 semgrep 룰**: 커뮤니티 팩이 놓치는 실제 대상 스택을 보강 — `sast/semgrep-rules-custom/`
+(번들 유무·온라인 폴백과 무관하게 **항상 로드**, semgrep `languages:` 로 자체 스코핑). 1차 배치 = PHP 레거시/
+mode-router(`$_POST` 직접 쿼리 연결 SQLi·명령실행·LFI/RFI·반사 XSS·eval·md5 비번·DB 자격증명 하드코딩;
+SQLi/명령은 taint 데이터흐름 + 이스케이프 sanitizer 인식). 현장 나갈수록 룰 파일만 늘려 축적. 끄기: `SAST_NO_CUSTOM_RULES=1`.
 
 **교차검증(crossval)**: `--deep` 일 때 패턴 엔진(njsscan)의 오탐을 CodeQL taint 로 정정한다.
 예) njsscan 의 `node_nosqli` 는 흐름 분석 없이 패턴만 봐서 Sequelize 파라미터라이즈드 쿼리까지
@@ -130,7 +136,8 @@ export SAST_OSV_OFFLINE=1               # osv 오프라인 DB 사용(tools/osv-c
 sast/                     코어 (stdlib 전용, 오프라인)
   engines/
     __init__.py           엔진 레지스트리 + run_all (fingerprint 로 dedup 병합)
-    semgrep_engine.py     Semgrep 어댑터 (기본, 로컬 룰 번들 → 오프라인)
+    semgrep_engine.py     Semgrep 어댑터 (기본, 로컬 룰 번들 → 오프라인, + OKRA 커스텀룰 항상 로드)
+  semgrep-rules-custom/   OKRA 커스텀 semgrep 룰(php.yaml — PHP mode-router 스택). 룰 파일만 늘려 확장.
     secrets_engine.py     중요정보 스캐너 (기본, stdlib 정규식 — 시크릿/개인정보)
     sca_engine.py         SCA (기본, osv-scanner — 의존성 CVE / A06)
     codeql_engine.py      CodeQL 어댑터 (--deep, taint/dataflow)

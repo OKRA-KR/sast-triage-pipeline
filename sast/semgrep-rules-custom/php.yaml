@@ -1,0 +1,169 @@
+# OKRA 커스텀 룰 — PHP 레거시/mode-router 스택 (커뮤니티 팩 사각 보강).
+# 현장에서 반복해 만나는 국내식 PHP 관용구($_POST 직접 쿼리 연결, mode 분기, md5 비번 등).
+# languages: [php] 로 자체 스코핑 → 다른 언어 대상엔 안 붙음. 번들 유무와 무관하게 항상 로드.
+rules:
+  # ── SQL 인젝션 (taint: 실 데이터흐름) ──────────────────────────────
+  - id: php-superglobal-sqli
+    mode: taint
+    languages: [php]
+    severity: ERROR
+    message: >-
+      사용자 입력($_GET/$_POST/$_REQUEST/$_COOKIE)이 SQL 실행 함수로 흘러들어감 — SQL 인젝션(CWE-89).
+      prepared statement(파라미터 바인딩)로 교체.
+    metadata:
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021 - Injection"]
+      category: security
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+    pattern-sanitizers:
+      - pattern: intval(...)
+      - pattern: (int) $X
+      - pattern: (float) $X
+      - pattern: mysqli_real_escape_string(...)
+      - pattern: $C->real_escape_string(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: mysqli_query(...)
+          - pattern: mysql_query(...)
+          - pattern: pg_query(...)
+          - pattern: $C->query(...)
+          - pattern: $C->exec(...)
+          - pattern: $C->multi_query(...)
+
+  # ── 명령 실행 인젝션 (taint) ──────────────────────────────────────
+  - id: php-superglobal-command-exec
+    mode: taint
+    languages: [php]
+    severity: ERROR
+    message: >-
+      사용자 입력이 OS 명령 실행 함수로 흘러들어감 — 명령 인젝션(CWE-78).
+      escapeshellarg()/escapeshellcmd() 로 인자 이스케이프하거나 실행 자체를 제거.
+    metadata:
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021 - Injection"]
+      category: security
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+    pattern-sanitizers:
+      - pattern: escapeshellarg(...)
+      - pattern: escapeshellcmd(...)
+    pattern-sinks:
+      - pattern-either:
+          - pattern: system(...)
+          - pattern: exec(...)
+          - pattern: shell_exec(...)
+          - pattern: passthru(...)
+          - pattern: popen(...)
+          - pattern: proc_open(...)
+          - pattern: pcntl_exec(...)
+
+  # ── 반사형 XSS (직접 출력) ────────────────────────────────────────
+  - id: php-reflected-xss
+    languages: [php]
+    severity: WARNING
+    message: >-
+      사용자 입력을 이스케이프 없이 출력 — 반사형 XSS(CWE-79).
+      htmlspecialchars()/htmlentities() 로 출력 인코딩.
+    metadata:
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021 - Injection"]
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern: echo $_GET[...];
+          - pattern: echo $_POST[...];
+          - pattern: echo $_REQUEST[...];
+          - pattern: echo $_COOKIE[...];
+          - pattern: print $_GET[...];
+          - pattern: print $_POST[...];
+          - pattern: printf(..., $_GET[...], ...);
+          - pattern: printf(..., $_POST[...], ...);
+
+  # ── 파일 인클루전 (LFI/RFI) ───────────────────────────────────────
+  - id: php-file-inclusion-userinput
+    languages: [php]
+    severity: ERROR
+    message: >-
+      사용자 입력으로 파일 포함/읽기 — 로컬/원격 파일 인클루전(CWE-98/CWE-22).
+      화이트리스트(허용 파일 목록)로 제한.
+    metadata:
+      cwe: ["CWE-98", "CWE-22"]
+      owasp: ["A03:2021 - Injection"]
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern: include $_GET[...];
+          - pattern: include $_POST[...];
+          - pattern: include $_REQUEST[...];
+          - pattern: include_once $_GET[...];
+          - pattern: require $_GET[...];
+          - pattern: require_once $_GET[...];
+          - pattern: include "...".$_GET[...];
+          - pattern: require "...".$_GET[...];
+          - pattern: fopen($_GET[...], ...);
+          - pattern: readfile($_GET[...]);
+          - pattern: file_get_contents($_GET[...]);
+
+  # ── 동적 코드 평가 ────────────────────────────────────────────────
+  - id: php-dynamic-eval
+    languages: [php]
+    severity: ERROR
+    message: >-
+      변수를 동적으로 코드 평가 — 코드 인젝션(CWE-95). eval/assert/create_function 제거.
+    metadata:
+      cwe: ["CWE-95"]
+      owasp: ["A03:2021 - Injection"]
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern: eval($X);
+          - pattern: assert($X);
+          - pattern: create_function(...);
+      - pattern-not: eval("...");
+      - pattern-not: assert("...");
+
+  # ── 약한 비밀번호 해시 ────────────────────────────────────────────
+  - id: php-weak-password-hash
+    languages: [php]
+    severity: WARNING
+    message: >-
+      비밀번호를 md5/sha1 로 해시 — 약한 암호화(CWE-916). password_hash()(bcrypt/argon2) 사용.
+    metadata:
+      cwe: ["CWE-916", "CWE-327"]
+      owasp: ["A02:2021 - Cryptographic Failures"]
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern: $VAR = md5(...);
+          - pattern: $VAR = sha1(...);
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (?i).*(pass|pwd|pw|secret|hash|token|salt).*
+
+  # ── 하드코딩 DB 자격증명(위치 인자) ──────────────────────────────
+  - id: php-hardcoded-db-cred
+    languages: [php]
+    severity: ERROR
+    message: >-
+      DB 접속 함수에 비밀번호 리터럴 하드코딩 — 자격증명 노출(CWE-798). 환경변수/보안저장소로 분리.
+    metadata:
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021 - Identification and Authentication Failures"]
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern: mysqli_connect($H, $U, "$PW", ...);
+          - pattern: new mysqli($H, $U, "$PW", ...);
+          - pattern: mysql_connect($H, $U, "$PW");
+      - metavariable-regex:
+          metavariable: $PW
+          regex: .{3,}

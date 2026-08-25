@@ -5,7 +5,8 @@
 오탐 최소화: 카드=Luhn, 주민번호=체크섬, 제네릭 키=플레이스홀더/env 참조 제외.
 안전: 탐지값은 마스킹해서 evidence/코드컨텍스트에 넣는다(평문 노출 방지).
 """
-import json, os, re
+import base64, json, math, os, re
+from collections import Counter
 from ..schema import fingerprint, new_finding
 
 NAME = "secrets-scan"
@@ -53,7 +54,47 @@ def _rrn(num):
     return chk == int(d[12])
 
 
-VALIDATORS = {"luhn": _luhn, "rrn": _rrn}
+def _entropy(s):
+    """Shannon 엔트로피(bits/char). 낮으면 반복/사전어 → 진짜 키 아님."""
+    if not s:
+        return 0.0
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in Counter(s).values())
+
+
+def _valid_jwt(s):
+    """구조 검증: 3개 base64url 파트 + 헤더가 alg/typ 담은 JSON 으로 디코드."""
+    parts = s.split(".")
+    if len(parts) != 3:
+        return False
+    try:
+        hdr = parts[0] + "=" * (-len(parts[0]) % 4)
+        obj = json.loads(base64.urlsafe_b64decode(hdr))
+        return isinstance(obj, dict) and ("alg" in obj or "typ" in obj)
+    except Exception:
+        return False
+
+
+_AWS_DUMMY = {"AKIAIOSFODNN7EXAMPLE", "AKIAIOSFODNN7XXXXXXX"}
+
+
+def _valid_aws(s):
+    """AWS 문서 예제키/저다양성 값 제외."""
+    return s not in _AWS_DUMMY and len(set(s)) >= 5
+
+
+VALIDATORS = {"luhn": _luhn, "rrn": _rrn, "jwt": _valid_jwt, "aws_key": _valid_aws}
+
+
+def _rejected(p, val, full):
+    """검증 실패면 True — validator(구조) + entropy_min(무작위성) 게이트."""
+    v = p.get("validator")
+    if v and not VALIDATORS[v](full):
+        return True
+    emin = p.get("entropy_min")
+    if emin and _entropy(val) < emin:
+        return True
+    return False
 
 
 def _redact(s):
@@ -111,8 +152,7 @@ def run(target, out_dir):
                             low = val.lower()
                             if any(x in low for x in deny) or len(set(val)) < 4:
                                 continue
-                        v = p.get("validator")
-                        if v and not VALIDATORS[v](m.group(0)):
+                        if _rejected(p, val, m.group(0)):
                             continue
                         key = (p["id"], rel, ln, val)
                         if key in seen:
@@ -150,8 +190,7 @@ def scan_text(text, location, source="OKRA-DAST"):
                     low = val.lower()
                     if any(x in low for x in deny) or len(set(val)) < 4:
                         continue
-                v = p.get("validator")
-                if v and not VALIDATORS[v](m.group(0)):
+                if _rejected(p, val, m.group(0)):
                     continue
                 key = (p["id"], location, val)
                 if key in seen:

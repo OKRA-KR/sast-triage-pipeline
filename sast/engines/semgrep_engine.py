@@ -13,6 +13,8 @@ from .. import env
 
 NAME = "semgrep"
 SAST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# OKRA 커스텀 룰 — 번들 유무와 무관하게 항상 로드(languages 로 자체 스코핑). 끄기: SAST_NO_CUSTOM_RULES
+CUSTOM_DIR = os.path.join(SAST_DIR, "semgrep-rules-custom")
 
 # 온라인 폴백용 레지스트리 팩
 REGISTRY_PACKS = ["p/owasp-top-ten", "p/javascript", "p/typescript", "p/python",
@@ -74,8 +76,8 @@ def _configs(target):
 NOISY_FRAGMENTS = ("/jquery/",)
 # pack 이름에서 걷어낼 경로/드라이브 노이즈 세그먼트
 _PACK_DROP = {"home", "kali", "mnt", "c", "users", "user", "tmp", "opt",
-              "semgrep-bundle", "semgrep-rules", "njsscan", "rules", "semantic_grep",
-              "security", "secrets", "lang", "audit"}
+              "semgrep-bundle", "semgrep-rules", "semgrep-rules-custom", "custom",
+              "njsscan", "rules", "semantic_grep", "security", "secrets", "lang", "audit"}
 
 def _pack(cid):
     parts = [p for p in cid.split(".") if p and p not in _PACK_DROP]
@@ -87,10 +89,14 @@ def available():
 def run(target, out_dir):
     raw = os.path.join(out_dir, "semgrep.json")
     configs, offline = _configs(target)
-    print(f"[*] semgrep 룰: {'로컬 번들(오프라인)' if offline else '레지스트리(온라인)'} · {len(configs)}개 소스")
+    custom = os.path.isdir(CUSTOM_DIR) and not os.environ.get("SAST_NO_CUSTOM_RULES")
+    print(f"[*] semgrep 룰: {'로컬 번들(오프라인)' if offline else '레지스트리(온라인)'} · {len(configs)}개 소스"
+          + (" · OKRA 커스텀룰 포함" if custom else ""))
     cmd = ["semgrep", "scan"]
     for c in configs:
         cmd += ["--config", c]
+    if custom:
+        cmd += ["--config", CUSTOM_DIR]
     cmd += ["--exclude", "node_modules", "--exclude", "dist", "--exclude", "build",
             "--json", "--output", raw, "--metrics", "off", "--quiet"]
     subprocess.run(cmd, cwd=target, timeout=1800)
