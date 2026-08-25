@@ -39,10 +39,7 @@ HEADER_KEYWORDS = [
 
 
 def _ctx():
-    c = ssl.create_default_context()
-    c.check_hostname = False
-    c.verify_mode = ssl.CERT_NONE
-    return c
+    return env.ssl_context()     # 기본 검증 on, SAST_INSECURE_TLS=1 시에만 비활성
 
 
 def _fetch(url):

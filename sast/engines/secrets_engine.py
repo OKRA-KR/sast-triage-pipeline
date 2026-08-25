@@ -83,7 +83,17 @@ def _valid_aws(s):
     return s not in _AWS_DUMMY and len(set(s)) >= 5
 
 
-VALIDATORS = {"luhn": _luhn, "rrn": _rrn, "jwt": _valid_jwt, "aws_key": _valid_aws}
+def _krbiz(num):
+    """사업자등록번호(10자리) 체크섬 검증 — 오탐↓."""
+    d = re.sub(r"\D", "", num)
+    if len(d) != 10:
+        return False
+    w = [1, 3, 7, 1, 3, 7, 1, 3, 5]
+    s = sum(int(d[i]) * w[i] for i in range(9)) + (int(d[8]) * 5) // 10
+    return (10 - (s % 10)) % 10 == int(d[9])
+
+
+VALIDATORS = {"luhn": _luhn, "rrn": _rrn, "jwt": _valid_jwt, "aws_key": _valid_aws, "krbiz": _krbiz}
 
 
 def _rejected(p, val, full):

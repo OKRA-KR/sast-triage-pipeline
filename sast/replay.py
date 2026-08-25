@@ -22,16 +22,14 @@ MAX_REQ = int(os.environ.get("SAST_REPLAY_REQ", "600"))
 DELAY = float(os.environ.get("SAST_REPLAY_DELAY", "0.05"))
 XSS_MARK = "okr7xq<z>"
 _LOGIN_SIG = re.compile(r"(login|signin|로그인|비밀번호|아이디를?\s*입력|인증이?\s*필요)", re.I)
-_DROP_H = {"content-length", "host", "connection", "accept-encoding", "if-modified-since",
-           "if-none-match", "cookie" if os.environ.get("SAST_HTTP_COOKIE") else ""}
+_DROP_H = {"content-length", "host", "connection", "accept-encoding", "if-modified-since", "if-none-match"}
 _req = [0]
 truncated = [False]     # 요청 상한 도달로 부분 스캔이 되었는가 (report meta 로 전달)
 _warned = [False]
 
 
 def _ctx():
-    c = ssl.create_default_context(); c.check_hostname = False; c.verify_mode = ssl.CERT_NONE
-    return c
+    return env.ssl_context()     # 기본 검증 on, SAST_INSECURE_TLS=1 시에만 비활성
 
 
 def _send(method, url, headers, body):
@@ -58,6 +56,7 @@ def _headers_for(ex, cookie=None):
     h = {k: v for k, v in ex["req_headers"].items() if k not in _DROP_H}
     ck = cookie or os.environ.get("SAST_HTTP_COOKIE")
     if ck:
+        h.pop("cookie", None)      # 캡처 쿠키 제거 후 override(중복 Cookie 헤더 방지)
         h["Cookie"] = ck
     return h
 

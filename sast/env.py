@@ -6,7 +6,22 @@
 - 1계층(룰 스캔 + 오프라인 트리아지): 항상 가능(외부통신 없음).
 - 2·3계층(LLM 트리아지/심화): `online` 이고 LLM 설정이 있을 때만.
 """
-import os, shutil
+import os, shutil, ssl
+
+
+def insecure_tls():
+    """TLS 인증서 검증 비활성 여부. 기본 False(검증 on) — 도구 자신을 MITM/위조응답서 보호.
+    자기서명 폐쇄망 대상은 SAST_INSECURE_TLS=1(또는 --insecure)로만 옵트인."""
+    return bool(os.environ.get("SAST_INSECURE_TLS"))
+
+
+def ssl_context():
+    """DAST/replay/login 공용 SSL 컨텍스트. 기본 검증, 옵트인 시에만 CERT_NONE."""
+    ctx = ssl.create_default_context()
+    if insecure_tls():
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 def is_online():

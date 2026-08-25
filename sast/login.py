@@ -13,6 +13,7 @@ PW 는 로그에 마스킹. 인가 대상 전용.
 import os, re, ssl, urllib.request, urllib.error
 from urllib.parse import urlparse, parse_qsl, urlencode
 from .capture import _AUTHFAIL, _body_params
+from . import env
 
 _USER_KEYS = re.compile(r"^(user_?id|userid|user_?nm|username|login_?id|mb_id|account|userno|memid|email|id|user)$", re.I)
 _PW_KEYS = re.compile(r"^(pwd|passwd|password|user_?pw|passwrd|upw|pw|pass)$", re.I)
@@ -20,8 +21,7 @@ TIMEOUT = 10
 
 
 def _ctx():
-    c = ssl.create_default_context(); c.check_hostname = False; c.verify_mode = ssl.CERT_NONE
-    return c
+    return env.ssl_context()     # 기본 검증 on, SAST_INSECURE_TLS=1 시에만 비활성
 
 
 def _mask(s):

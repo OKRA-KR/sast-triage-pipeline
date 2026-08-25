@@ -10,13 +10,14 @@ ZAP 은 오프라인 자바 앱 → 폐쇄망 반입 가능(엔진 크레딧: OW
 연결: ZAP_URL(기본 127.0.0.1:8090). 없으면 tools/zap 또는 ~/ZAP 런처로 자동 기동.
 인증: SAST_HTTP_COOKIE 를 replacer 로 주입. 옵션: SAST_ZAP_AJAX=1, SAST_ZAP_ASCAN_MIN(기본 20분).
 """
-import json, os, time, glob, subprocess, urllib.request, urllib.parse
+import json, os, secrets, time, glob, subprocess, urllib.request, urllib.parse
 from .schema import categorize, fingerprint, new_finding
 from .engines import secrets_engine
 from . import env, capture
 
 ZAP_URL = os.environ.get("ZAP_URL", "http://127.0.0.1:8090").rstrip("/")
-ZAP_KEY = os.environ.get("ZAP_API_KEY", "sastzapkey")
+# 하드코딩 키 제거 — 세션마다 랜덤(자체 기동 데몬에 주입). 외부 ZAP 연결 시 ZAP_API_KEY 로 지정.
+ZAP_KEY = os.environ.get("ZAP_API_KEY") or secrets.token_hex(16)
 RISK = {"High": "high", "Medium": "medium", "Low": "low", "Informational": "info"}
 _started = [None]
 

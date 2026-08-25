@@ -17,6 +17,9 @@ def cmd_scan(a):
     verify_url = a.verify or os.environ.get("SAST_VERIFY_URL")
     if a.online:
         os.environ["SAST_ONLINE"] = "1"
+    if getattr(a, "insecure", False):
+        os.environ["SAST_INSECURE_TLS"] = "1"
+        print("[!] TLS 인증서 검증 비활성(--insecure) — MITM/위조응답 위험, 인가 폐쇄망 전용")
     if a.cookie:
         os.environ["SAST_HTTP_COOKIE"] = a.cookie
     if a.header:
@@ -138,6 +141,7 @@ def main(argv=None):
     sc.add_argument("--active", action="store_true", help="경량 능동 DAST(내장, 인가 전용)")
     sc.add_argument("--okra", "--zap", dest="okra", action="store_true",
                     help="OKRA DAST(ZAP 엔진 spider+ascan + 중요정보 스캔, 인가 전용)")
+    sc.add_argument("--insecure", action="store_true", help="TLS 인증서 검증 끔(자기서명 폐쇄망 대상 전용)")
     sc.add_argument("--cookie", default=None, help="DAST 요청 쿠키(예: 'PHPSESSID=..')")
     sc.add_argument("--header", action="append", default=[], metavar="'N: V'", help="DAST 커스텀 헤더(반복 가능)")
     sc.set_defaults(func=cmd_scan)

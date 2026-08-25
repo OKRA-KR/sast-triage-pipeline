@@ -121,16 +121,16 @@ def apply(findings, exchanges):
             continue
 
         quality, ep = best
-        f["reachable"] = "reachable"
-        note = f"[상관] 실제 관측 엔드포인트 대응: {ep['method']} {ep['path']}"
-        # 파라미터 교차: SAST 가 지목한 파라미터가 그 엔드포인트에 실재
         pmatch = _params_of(f) & ep["params"]
-        if pmatch:
-            note += f" · 파라미터 확인({', '.join(sorted(pmatch))})"
-        # 라이브 증상 상관 → 승격
+        # 라우트≠파일명 스택(Spring/Express)에서 약한 토큰겹침은 오/미스매치 소지 →
+        # strong(basename 세그먼트 일치)일 때만 도달확인, weak 는 낮은 신뢰의 후보 노트만.
         symptom = _CLASS_SYMPTOM.get(f["category"])
         strong_hit = symptom and symptom in ep["symptoms"]
+        note = f"[상관] 관측 엔드포인트 대응({quality}): {ep['method']} {ep['path']}"
+        if pmatch:
+            note += f" · 파라미터 확인({', '.join(sorted(pmatch))})"
         if strong_hit or (quality == "strong" and pmatch):
+            f["reachable"] = "reachable"
             f["corroborated"] = True
             f["confidence"] = min(1.0, (f.get("confidence") or 0.0) + 0.3)
             if strong_hit:
@@ -139,8 +139,12 @@ def apply(findings, exchanges):
                                 "evidence": f"동일 엔드포인트 응답에 {symptom} 관측 — 정적 {f['category']} 발견과 일치"}
                 note += f" · 라이브 증상({symptom}) 일치 → 확증"
             promo += 1
-        else:
-            f["confidence"] = min(1.0, (f.get("confidence") or 0.0) + 0.12)
+        elif quality == "strong":
+            f["reachable"] = "reachable"
+            f["confidence"] = min(1.0, (f.get("confidence") or 0.0) + 0.1)
+        else:                       # weak: 도달확인으로 못 박지 않음(과신뢰 방지)
+            note += " (약한 매칭 — 참고)"
+            f["confidence"] = min(1.0, (f.get("confidence") or 0.0) + 0.03)
         f["rationale"] = (f.get("rationale") or "") + note + "."
         reach += 1
 
