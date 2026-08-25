@@ -81,7 +81,7 @@ def cmd_scan(a):
             layers.append("active-dast")
         if a.okra or os.environ.get("SAST_OKRA") or os.environ.get("SAST_ZAP"):   # OKRA DAST(엔진 ZAP)
             print("[!] OKRA DAST — 인가된 대상에만! spider+active scan + 중요정보 스캔을 수행합니다.")
-            findings = okra.scan(verify_url, findings)
+            findings = okra.scan(verify_url, findings, out_dir=out)
             layers.append("okra-dast")
 
     # ── 1계층 마무리: 오프라인 트리아지 (외부통신 0 — 폐쇄망서도 자립 완결) ──

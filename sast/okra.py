@@ -13,7 +13,7 @@ ZAP 은 오프라인 자바 앱 → 폐쇄망 반입 가능(엔진 크레딧: OW
 import json, os, time, glob, subprocess, urllib.request, urllib.parse
 from .schema import categorize, fingerprint, new_finding
 from .engines import secrets_engine
-from . import env
+from . import env, capture
 
 ZAP_URL = os.environ.get("ZAP_URL", "http://127.0.0.1:8090").rstrip("/")
 ZAP_KEY = os.environ.get("ZAP_API_KEY", "sastzapkey")
@@ -81,7 +81,41 @@ def available():
     return _alive() or _find_launcher() is not None
 
 
-def scan(base_url, findings=None):
+def _msg_to_exchange(m, base):
+    """ZAP core/messages 항목 → capture 공통 Exchange (엔드포인트 인벤토리용)."""
+    reqh_raw = m.get("requestHeader", "") or ""
+    first = reqh_raw.split("\n", 1)[0].strip()
+    parts = first.split(" ")
+    method = parts[0] if parts else "GET"
+    target = parts[1] if len(parts) > 1 else "/"
+    rqh = capture._headers(reqh_raw)
+    if target.startswith("http"):
+        url = target
+    else:
+        host = rqh.get("host", "")
+        scheme = urllib.parse.urlparse(base).scheme or "https"
+        url = f"{scheme}://{host}{target}" if host else base.rstrip("/") + target
+    resph_raw = m.get("responseHeader", "") or ""
+    st_parts = resph_raw.split("\n", 1)[0].split(" ")
+    status = st_parts[1] if len(st_parts) > 1 and st_parts[1].isdigit() else ""
+    rsh = capture._headers(resph_raw)
+    mime = (rsh.get("content-type", "").split(";")[0].strip())
+    return capture._mk(method, url, rqh, m.get("requestBody", "") or "",
+                       "", resph_raw, m.get("responseBody", "") or "", status, mime)
+
+
+def _write_endpoints(messages, base, out_dir):
+    """ZAP 크롤 결과에서 엔드포인트 인벤토리 CSV 생성 (Track C 와 동일 포맷)."""
+    if not out_dir or not messages:
+        return 0
+    exs = [_msg_to_exchange(m, base) for m in messages]
+    inv = capture.endpoints(exs)
+    capture.write_endpoints_csv(inv, os.path.join(out_dir, "endpoints.csv"))
+    print(f"[*] OKRA: 엔드포인트 {len(inv)}개 식별 → {out_dir}/endpoints.csv")
+    return len(inv)
+
+
+def scan(base_url, findings=None, out_dir=None):
     if not _launch():
         print("[!] OKRA DAST: ZAP 엔진 미가용 — 데몬/런처 없음"); return findings or []
     base = base_url.rstrip("/")
@@ -128,6 +162,7 @@ def scan(base_url, findings=None):
     uniq = [_to_finding_agg(items) for items in groups.values()]
     uniq.sort(key=lambda f: {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}.get(f["severity"], 5))
     print(f"[*] OKRA DAST(ZAP 엔진): alert {len(alerts)} → 이슈유형 {len(uniq)}건(집계)")
+    _write_endpoints(messages, base, out_dir)     # 엔드포인트 인벤토리 CSV
 
     # OKRA 고유: ZAP 이 크롤한 응답 본문에 secrets/PII 엔진 적용 → 라이브 중요정보 노출
     okra_sec, seen_sec = [], set()
