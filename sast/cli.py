@@ -8,7 +8,7 @@ Track B (Repo 없음)  → 블랙박스: 라이브 URL 엔드포인트 식별 �
 """
 import argparse, os, sys
 from .engines import run_all
-from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, capture, correlate, report, env
+from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, capture, correlate, replay, report, env
 
 
 def cmd_scan(a):
@@ -67,9 +67,9 @@ def cmd_scan(a):
                     ck = capture.cookie_from(exs)
                     if ck:
                         os.environ["SAST_HTTP_COOKIE"] = ck; print("[*] 캡처 세션 쿠키 재사용")
-                print("[!] 능동 DAST(엔드포인트 타깃) — 인가된 대상에만! payload 를 전송합니다.")
-                findings = findings + active.scan_endpoints(base, inv)
-                layers.append("active-targeted")
+                print("[!] 능동 DAST(캡처 replay) — 인가된 대상에만! 실제 요청을 재전송하며 표적 검증합니다.")
+                findings = findings + replay.scan_capture(exs)     # 실제 인증 요청 재전송(SQLi/XSS/IDOR)
+                layers.append("replay")
 
     # ── Track B : 블랙박스 (라이브 URL) ─────────────────────────
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
