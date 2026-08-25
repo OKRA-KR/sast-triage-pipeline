@@ -69,8 +69,13 @@ def cmd_scan(a):
                         os.environ["SAST_HTTP_COOKIE"] = ck; print("[*] 캡처 세션 쿠키 재사용")
                 print("[!] 능동 DAST(캡처 replay) — 인가된 대상에만! 실제 요청을 재전송하며 표적 검증합니다.")
                 sess_a, sess_b = login.build_sessions(exs)         # ID/PW(env) 있으면 직접 로그인→싱싱 세션
-                findings = findings + replay.scan_capture(exs, sess_a, sess_b)   # SQLi/XSS/IDOR
-                layers.append("replay")
+                creds_given = bool(os.environ.get("SAST_LOGIN_USER") and os.environ.get("SAST_LOGIN_PASS"))
+                if creds_given and not sess_a and not os.environ.get("SAST_LOGIN_ALLOW_UNAUTH"):
+                    print("[!] 로그인 검증 실패 → replay 생략(비인증 스캔 방지). "
+                          "비인증으로라도 진행하려면 SAST_LOGIN_ALLOW_UNAUTH=1")
+                else:
+                    findings = findings + replay.scan_capture(exs, sess_a, sess_b)   # SQLi/XSS/IDOR
+                    layers.append("replay")
 
     # ── Track B : 블랙박스 (라이브 URL) ─────────────────────────
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
