@@ -8,7 +8,7 @@ Track B (Repo 없음)  → 블랙박스: 라이브 URL 엔드포인트 식별 �
 """
 import argparse, os, sys
 from .engines import run_all
-from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, capture, report, env
+from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, capture, correlate, report, env
 
 
 def cmd_scan(a):
@@ -74,6 +74,9 @@ def cmd_scan(a):
         layers.append("passive")
         if not engines:
             engines = ["passive"]
+        # SAST↔캡처 상관(P2) — Track A 발견이 있으면 실트래픽으로 도달확인/확증
+        if have_repo:
+            correlate.apply(findings, exs); layers.append("correlate")
         # 캡처의 엔드포인트를 그대로 겨냥한 정밀 능동 점검(패킷 전송 → 인가 전용, 옵트인)
         if a.active or os.environ.get("SAST_ACTIVE"):
             base = verify_url or (exs and f"{exs[0]['scheme']}://{exs[0]['host']}") or ""
