@@ -49,12 +49,36 @@ def _send(method, url, headers, body):
         return None
 
 
-def _headers_for(ex):
+def _headers_for(ex, cookie=None):
     h = {k: v for k, v in ex["req_headers"].items() if k not in _DROP_H}
-    ck = os.environ.get("SAST_HTTP_COOKIE")
+    ck = cookie or os.environ.get("SAST_HTTP_COOKIE")
     if ck:
         h["Cookie"] = ck
     return h
+
+
+_STATIC = re.compile(r"\.(?:css|js|png|jpe?g|gif|svg|ico|woff2?|ttf|map|txt|xml)$", re.I)
+_PUBLIC = {"/", "/robots.txt", "/sitemap.xml", "/favicon.ico"}
+
+
+def _is_read(ex):
+    """읽기형 요청인가? (2계정 IDOR 은 비파괴 읽기에만 — save/delete 등 제외)"""
+    p = ex["path"].lower()
+    if any(w in p for w in ("save", "delete", "update", "insert", "write", "remove", "add", "modify", "logout")):
+        return False
+    return ex["method"] == "GET" or any(w in p for w in ("search", "list", "view", "detail", "get", "read", "info", "payment", "inout"))
+
+
+def _idor_worthy(ex):
+    """2계정 IDOR 교차확증 대상? — 캡처에서 인증됐고, 비정적/비공개 데이터 읽기."""
+    if not (ex["req_headers"].get("cookie") or ex["req_headers"].get("authorization")):
+        return False                                  # 캡처에서 인증 안 된 요청 = 공개 → 제외
+    if ex["path"] in _PUBLIC or _STATIC.search(ex["path"]):
+        return False
+    if not _is_read(ex):
+        return False
+    # 민감 신호: /api/ 데이터 엔드포인트 또는 객체참조 파라미터 보유
+    return "/api/" in ex["path"] or any(_IDOR_NAME.search(k) for k, _, _ in _params(ex))
 
 
 def _params(ex):
@@ -101,9 +125,11 @@ def _blocked(r):
     return False
 
 
-def scan_capture(exchanges):
+def scan_capture(exchanges, session=None, session_b=None):
     base_hosts = {ex["host"] for ex in exchanges if ex["host"]}
-    print(f"[*] replay 검증: 캡처 {len(exchanges)}건 · 호스트 {', '.join(sorted(base_hosts))} (인가 대상 전제·비파괴)")
+    ck_a = session.cookie if session else None
+    mode = f" · 세션 A={session.label}" + (f", B={session_b.label} (IDOR 교차확증)" if session_b else "") if session else ""
+    print(f"[*] replay 검증: 캡처 {len(exchanges)}건 · 호스트 {', '.join(sorted(base_hosts))} (인가 대상 전제·비파괴){mode}")
     seen, reps = set(), []
     for ex in exchanges:
         sig = (ex["method"], ex["path"], tuple(sorted(k for k, _, _ in _params(ex))))
@@ -119,11 +145,29 @@ def scan_capture(exchanges):
             seen_f.add(k); findings.append(f)
 
     for ex in reps:
-        hdr = _headers_for(ex)
+        hdr = _headers_for(ex, ck_a)
         base = _send(ex["method"], ex["url"], hdr, ex["req_body"] or None)
+        # 세션 만료(로그인 리다이렉트) 시 1회 재로그인 후 재시도
+        if session and _blocked(base):
+            if session.reauth():
+                ck_a = session.cookie; hdr = _headers_for(ex, ck_a)
+                base = _send(ex["method"], ex["url"], hdr, ex["req_body"] or None)
         if not base:
             continue
         bl = _resp_len(base)
+
+        # ── 2계정 권한검증(IDOR 확증): A 의 요청을 B 세션으로 재전송 → B 가 A 데이터 받으면 수평권한상승 ──
+        if session_b and _idor_worthy(ex) and not _blocked(base) and bl > 50:
+            hb = _headers_for(ex, session_b.cookie)
+            rb = _send(ex["method"], ex["url"], hb, ex["req_body"] or None)
+            if rb and not _blocked(rb) and 200 <= rb[0] < 300 and abs(_resp_len(rb) - bl) < max(80, 0.15 * bl):
+                f = _f("idor", "high", ex, "(계정간)", "B 세션으로 A 요청 재전송",
+                       f"타 계정({session_b.label}) 세션이 A({session.label}) 데이터 획득(200, len {bl}≈{_resp_len(rb)}) — 접근통제 실패",
+                       "true_positive")
+                f["confidence"] = 0.9
+                f["rationale"] = ("두 계정 교차확증: 계정 B 세션으로 계정 A 의 요청을 재전송했을 때 차단 없이 "
+                                  "A 의 데이터가 반환됨 → 객체수준 접근통제(BOLA/IDOR) 확정.")
+                add(f)
         for key, val, loc in _params(ex):
             val = val or "1"
             # ── SQLi: 오류 시그니처 ──
