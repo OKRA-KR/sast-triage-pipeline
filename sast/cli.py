@@ -112,9 +112,12 @@ def cmd_scan(a):
         print("[*] 2·3계층(LLM) OFF — LLM 미설정(SAST_LLM_ENDPOINT/SAST_LLM_KEY). 1계층 결과로 완결.")
 
     src = target if have_repo else (verify_url or cap or "")
+    truncated = replay.truncated[0] or active.truncated[0]
     res = report.build(name, src, engines or ["blackbox"], findings, out,
-                       mode="+".join(layers) + f" [{env.mode_label()}]")
+                       mode="+".join(layers) + f" [{env.mode_label()}]", truncated=truncated)
     s = res["summary"]
+    if truncated:
+        print("[!] 주의: 요청 상한 도달로 능동 프로브가 부분적입니다(meta.truncated=true).")
     print(f"[*] 억제 {s['suppressed']} · 검토대상 {s['needs_review']} · 동적확증 {s['dynamic_confirmed']} · 심각도 {s['by_severity']}")
     print(f"[*] 결과 {out}/results.json  |  대시보드 {out}/index.html")
     return 0

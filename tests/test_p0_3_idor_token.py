@@ -16,10 +16,14 @@ def _ex(path, body):
 
 
 def _run(exs, responder):
+    orig = replay._send
     replay._send = responder
     replay._req[0] = 0
-    a, b = _Sess("A***", "SID=A"), _Sess("B***", "SID=B")
-    return replay.scan_capture(exs, a, b)
+    try:
+        a, b = _Sess("A***", "SID=A"), _Sess("B***", "SID=B")
+        return replay.scan_capture(exs, a, b)
+    finally:
+        replay._send = orig     # 전역 상태 복원(다른 테스트 오염 방지)
 
 
 def test_confirmed_when_A_token_in_B_response():

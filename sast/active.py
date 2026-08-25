@@ -30,6 +30,8 @@ SQL_ERR = re.compile(r"SQL syntax|mysql_fetch|ORA-\d{5}|SQLite/|PostgreSQL.*ERRO
                      r"Unclosed quotation|quoted string not properly|"
                      r"you have an error in your sql", re.I)
 _req_count = [0]
+truncated = [False]     # 요청 상한 도달로 부분 스캔 여부
+_warned = [False]
 
 
 def _ctx():
@@ -39,6 +41,9 @@ def _ctx():
 
 def _fetch(url, redirect=True, data=None):
     if _req_count[0] >= MAX_REQ:
+        if not _warned[0]:
+            print(f"[!] 요청 상한 {MAX_REQ} 도달 — 이후 프로브 생략, 결과 부분적(SAST_ACTIVE_REQ 로 상향)")
+            _warned[0] = True; truncated[0] = True
         return None
     _req_count[0] += 1
     time.sleep(DELAY)

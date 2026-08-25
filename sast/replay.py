@@ -25,6 +25,8 @@ _LOGIN_SIG = re.compile(r"(login|signin|로그인|비밀번호|아이디를?\s*�
 _DROP_H = {"content-length", "host", "connection", "accept-encoding", "if-modified-since",
            "if-none-match", "cookie" if os.environ.get("SAST_HTTP_COOKIE") else ""}
 _req = [0]
+truncated = [False]     # 요청 상한 도달로 부분 스캔이 되었는가 (report meta 로 전달)
+_warned = [False]
 
 
 def _ctx():
@@ -34,6 +36,9 @@ def _ctx():
 
 def _send(method, url, headers, body):
     if _req[0] >= MAX_REQ:
+        if not _warned[0]:
+            print(f"[!] 요청 상한 {MAX_REQ} 도달 — 이후 프로브 생략, 결과 부분적(SAST_REPLAY_REQ 로 상향)")
+            _warned[0] = True; truncated[0] = True
         return None
     _req[0] += 1
     time.sleep(DELAY)
@@ -138,6 +143,7 @@ def _blocked(r):
 
 
 def scan_capture(exchanges, session=None, session_b=None):
+    _req[0] = 0; _warned[0] = False; truncated[0] = False
     base_hosts = {ex["host"] for ex in exchanges if ex["host"]}
     ck_a = session.cookie if session else None
     mode = f" · 세션 A={session.label}" + (f", B={session_b.label} (IDOR 교차확증)" if session_b else "") if session else ""

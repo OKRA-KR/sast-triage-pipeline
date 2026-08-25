@@ -19,7 +19,7 @@ def summarize(findings):
                      for k in ("critical", "high", "medium", "low")},
     )
 
-def build(name, target, engines, findings, out_dir, mode="layer1"):
+def build(name, target, engines, findings, out_dir, mode="layer1", truncated=False):
     os.makedirs(out_dir, exist_ok=True)
     for f in findings:                      # 세부 category → 분석기준 상위 그룹
         f["group"] = group_of(f["category"])
@@ -30,7 +30,7 @@ def build(name, target, engines, findings, out_dir, mode="layer1"):
         meta=dict(target=name, source=target,
                   scanned_at=datetime.date.today().isoformat(),
                   scanner=" + ".join(engines) if engines else "none",
-                  mode=mode, schema=SCHEMA),
+                  mode=mode, schema=SCHEMA, truncated=bool(truncated)),
         summary=summarize(findings),
         findings=findings)
     json.dump(results, open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8"),
