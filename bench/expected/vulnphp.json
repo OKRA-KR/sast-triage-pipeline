@@ -1,0 +1,18 @@
+{
+  "note": "합성 타깃 — 정답을 정확히 아는 planted 취약점. 정밀 precision/recall 측정용.",
+  "scan_target": "bench/apps/vulnphp",
+  "match": "path_contains",
+  "expected": [
+    {"category": "sql-injection",    "path": "vuln.php", "note": "$_POST→mysqli_query"},
+    {"category": "command-injection","path": "vuln.php", "note": "$_GET→system"},
+    {"category": "path-traversal",   "path": "vuln.php", "note": "include $_GET (LFI)"},
+    {"category": "xss",              "path": "vuln.php", "note": "echo $_GET"},
+    {"category": "code-injection",   "path": "vuln.php", "note": "eval($_REQUEST)"},
+    {"category": "weak-crypto",      "path": "vuln.php", "note": "md5(비밀번호)"},
+    {"category": "hardcoded-secret", "path": "vuln.php", "note": "mysqli_connect 비번 리터럴"}
+  ],
+  "clean": [
+    {"group": "injection", "path": "safe.php", "note": "prepared/intval → 인젝션 0"},
+    {"group": "xss",       "path": "safe.php", "note": "htmlspecialchars → XSS 0"}
+  ]
+}

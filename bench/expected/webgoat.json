@@ -1,0 +1,15 @@
+{
+  "note": "WebGoat — 잘 알려진 의도적 취약 레슨 기반의 보수적 recall 셋(부분 정답: recall 위주). 정답 근거는 WebGoat 자체 레슨 설계(lessons/<vulnclass>/)이며 도구 출력에서 파생하지 않음. clean 은 정적/CI 자산.",
+  "results": "out/WebGoat/results.json",
+  "match": "path_contains",
+  "expected": [
+    {"category": "sql-injection",  "path": "lessons/sqlinjection/", "note": "SQLi 레슨(의도적 취약)"},
+    {"category": "path-traversal", "path": "lessons/pathtraversal/", "note": "Path Traversal 레슨"},
+    {"category": "access-control", "path": "lessons/jwt/",           "note": "JWT 서명검증 미흡 레슨"},
+    {"category": "xss",            "path": "lessons/",               "note": "XSS 레슨/클라이언트필터"}
+  ],
+  "clean": [
+    {"group": "injection", "path": "webgoat/static/plugins/", "note": "서드파티 정적 플러그인 — 인젝션 오탐 소지"},
+    {"group": "injection", "path": ".github/",                "note": "CI 워크플로 — 인젝션 아님"}
+  ]
+}
