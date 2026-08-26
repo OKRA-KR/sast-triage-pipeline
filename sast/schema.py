@@ -21,6 +21,7 @@ GROUP_MAP = {
     "access-control": "broken-access", "csrf": "broken-access", "ssrf": "broken-access",
     "open-redirect": "broken-access", "missing-anti-automation": "broken-access",
     "idor": "broken-access", "user-enumeration": "info-disclosure",
+    "missing-auth": "broken-access", "broken-auth": "broken-access",
     "weak-crypto": "crypto-failure", "insecure-randomness": "crypto-failure", "timing-attack": "crypto-failure",
     "hardcoded-secret": "sensitive-exposure", "sensitive-data": "sensitive-exposure",
     "info-disclosure": "info-disclosure", "ci-hardening": "info-disclosure",

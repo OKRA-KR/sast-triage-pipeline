@@ -65,6 +65,27 @@ _STATIC = re.compile(r"\.(?:css|js|png|jpe?g|gif|svg|ico|woff2?|ttf|map|txt|xml)
 _PUBLIC = {"/", "/robots.txt", "/sitemap.xml", "/favicon.ico"}
 
 
+_STORED_MARK = "okrStored9z"                 # 저장형 XSS 고유 마커
+_STORED_PAYLOAD = '"><' + _STORED_MARK + '>'  # 속성 탈출 + 태그(미이스케이프면 '<' 그대로 반사)
+_STORED_RAW = "<" + _STORED_MARK
+
+
+def _had_auth(ex):
+    return bool(ex["req_headers"].get("cookie") or ex["req_headers"].get("authorization"))
+
+
+def _no_auth_headers(ex):
+    """세션/인증 헤더를 모두 제거한 헤더(인증 부재 프로브용)."""
+    return {k: v for k, v in ex["req_headers"].items()
+            if k not in _DROP_H and k.lower() not in ("cookie", "authorization")}
+
+
+def _looks_text(val):
+    """텍스트성 파라미터인가(이름·이메일·메모 등) — 저장형 XSS 주입 대상. 숫자/날짜/id 제외."""
+    v = str(val or "").strip()
+    return 0 < len(v) < 60 and not re.fullmatch(r"[\d\-:/.\s]+", v)
+
+
 def _is_read(ex):
     """읽기형 요청인가? (2계정 IDOR 은 비파괴 읽기에만 — save/delete 등 제외)"""
     p = ex["path"].lower()
@@ -147,6 +168,7 @@ def scan_capture(exchanges, session=None, session_b=None):
     ck_a = session.cookie if session else None
     mode = f" · 세션 A={session.label}" + (f", B={session_b.label} (IDOR 교차확증)" if session_b else "") if session else ""
     print(f"[*] replay 검증: 캡처 {len(exchanges)}건 · 호스트 {', '.join(sorted(base_hosts))} (인가 대상 전제·비파괴){mode}")
+    print("[*] role: SQLi(오류/불리언) · XSS(반사/저장형) · 인증부재/우회 · IDOR(단일/2계정)")
     seen, reps = set(), []
     for ex in exchanges:
         sig = (ex["method"], ex["path"], tuple(sorted(k for k, _, _ in _params(ex))))
@@ -172,6 +194,19 @@ def scan_capture(exchanges, session=None, session_b=None):
         if not base:
             continue
         bl = _resp_len(base)
+
+        # ── 인증 부재/우회: 캡처에서 인증됐던 요청을 '세션 제거' 후 재전송 → 여전히 처리되면 Critical ──
+        # (요청은 캡처 원본 그대로 = 비파괴. 읽기는 데이터노출, 쓰기는 동일값 재기록)
+        if _had_auth(ex) and not _blocked(base) and bl > 20:
+            rna = _send(ex["method"], ex["url"], _no_auth_headers(ex), ex["req_body"] or None)
+            if rna and not _blocked(rna) and 200 <= rna[0] < 300 and abs(_resp_len(rna) - bl) < max(120, 0.25 * bl):
+                f = _f("missing-auth", "critical", ex, "(세션제거)", "쿠키/인증 제거 재전송",
+                       f"인증 없이 요청 처리됨(무세션 {rna[0]}, len {_resp_len(rna)}≈{bl}) — 인증 부재/우회(CWE-306)",
+                       "true_positive")
+                f["confidence"] = 0.9
+                f["rationale"] = ("캡처에서 인증(쿠키) 상태였던 요청을 세션/인증 헤더 제거 후 재전송했을 때 차단 없이 "
+                                  "동일 결과 반환 → 인증 미강제. 상태변경 엔드포인트면 비인증 조작·계정탈취로 연결.")
+                add(f)
 
         # ── 2계정 권한검증(IDOR): A 요청을 B 세션으로 재전송 → B 응답에 'A 고유 토큰'이 있어야 확정 ──
         # 길이 유사만으로는 세션결정형(/api/mypage 처럼 id 무시하고 자기 데이터 반환) 오탐이 남는다.
@@ -240,8 +275,34 @@ def scan_capture(exchanges, session=None, session_b=None):
                         f["rationale"] = ("동일 세션으로 남의 객체 id 응답이 데이터형(200)이고 무효 id 와 다름 → "
                                           "객체수준 접근통제(BOLA/IDOR) 실패 정황. 두 계정으로 교차 확증 권장.")
                         add(f)
+
+    # ── 저장형(Stored) XSS: 쓰기 엔드포인트에 마커 주입 → 읽기 엔드포인트 재조회서 미이스케이프 반사 확인 ──
+    _stored_xss(reps, ck_a, add)
+
     print(f"[*] replay 검증: 요청 {_req[0]}건 · 확증/후보 {len(findings)}건")
     return findings
+
+
+def _stored_xss(reps, ck_a, add):
+    """저장→재조회 2단계. 상태변경 요청의 텍스트 파라미터에 마커를 저장하고,
+    GET 엔드포인트들을 재조회해 마커가 미이스케이프로 반사되면 저장형 XSS 확정."""
+    writers = [ex for ex in reps if ex["method"] in ("POST", "PUT", "PATCH") and not _is_read(ex)]
+    injected = 0
+    for ex in writers:
+        for key, val, loc in _params(ex):
+            if _looks_text(val):
+                u, b = _mutate(ex, key, loc, _STORED_PAYLOAD)
+                if _send(ex["method"], u, _headers_for(ex, ck_a), b):
+                    injected += 1
+    if not injected:
+        return
+    for ex in [e for e in reps if e["method"] == "GET"]:
+        r = _send("GET", ex["url"], _headers_for(ex, ck_a), None)
+        if r and _STORED_RAW in r[2]:      # '<okrStored9z' 그대로 = '<' 미이스케이프
+            add(_f("xss", "high", ex, "(저장형)", _STORED_PAYLOAD,
+                   f"저장형 XSS — 주입 마커가 {ex['path']} 응답에 미이스케이프 반사(저장→재조회 확인)",
+                   "true_positive"))
+            return
 
 
 def _f(cat, sev, ex, key, payload, ev, verdict):
