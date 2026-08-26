@@ -15,6 +15,7 @@ GROUP_MAP = {
     "sql-injection": "injection", "nosql-injection": "injection", "command-injection": "injection",
     "code-injection": "injection", "ssti": "injection", "xxe": "injection",
     "log-injection": "injection", "prototype-pollution": "injection", "path-traversal": "injection",
+    "crlf-injection": "injection",
     "deserialization": "injection", "redos": "injection", "toctou": "injection",
     "type-confusion": "injection", "file-upload": "injection", "request-smuggling": "injection",
     "xss": "xss", "weak-sanitization": "xss",

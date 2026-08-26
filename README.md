@@ -188,7 +188,7 @@ sast/                     코어 (stdlib 전용, 오프라인)
   okra.py                 Track B OKRA DAST: OWASP ZAP(Apache-2.0) 구동+alert 정규화 + 응답 본문 중요정보 스캔 (--okra)
   capture.py              Track C 패시브 분석: Burp/HAR 파싱→엔드포인트 인벤토리(CSV)+오프라인 룰 (--capture, 패킷0)
   correlate.py            SAST↔캡처 상관(P2, IAST-lite): 정적 발견을 실트래픽으로 도달확인/증상확증 (패킷0)
-  replay.py               캡처 기반 능동 검증(role): 무인증접근 스윕 → SQLi(오류/불리언)·XSS(반사/저장형)·인증부재/우회·IDOR(단일/2계정) (--capture --active)
+  replay.py               캡처 기반 능동 검증(role): 무인증스윕·SQLi·XSS(반사/저장형)·LFI·SSTI·명령인젝션·SSRF·XXE·오픈리다이렉트·CRLF·인증부재/우회·IDOR(단일/2계정)
   login.py                인증 세션(ID/PW→로그인·재로그인·2계정 IDOR) + 로그인 브루트포스(옵트인, 약한자격증명/락아웃 부재)
   report.py               results.json(sast-results/2) + 대시보드 생성
   cli.py                  python3 -m sast scan <target> --out <dir> [--online] [--verify URL]
