@@ -66,8 +66,11 @@ def _headers_for(ex, cookie=None):
     h = {k: v for k, v in ex["req_headers"].items() if k not in _DROP_H}
     ck = cookie or os.environ.get("SAST_HTTP_COOKIE")
     if ck:
-        h.pop("cookie", None)      # 캡처 쿠키 제거 후 override(중복 Cookie 헤더 방지)
-        h["Cookie"] = ck
+        h.pop("cookie", None); h.pop("authorization", None)   # 캡처 자격 제거 후 override
+        if ck.startswith("Bearer "):
+            h["Authorization"] = ck                           # JSON/토큰 인증
+        else:
+            h["Cookie"] = ck
     return h
 
 

@@ -84,10 +84,21 @@ _DROP = {"content-length", "host", "connection", "accept-encoding", "cookie"}
 _LOGIN_SIG = re.compile(r"(login|signin|로그인|비밀번호|아이디를?\s*입력|인증이?\s*필요|세션이?\s*만료)", re.I)
 
 
+def _apply_cred(h, cred):
+    """세션 자격을 헤더에 적용 — 'Bearer …'면 Authorization, 아니면 Cookie."""
+    if not cred:
+        return
+    h.pop("cookie", None); h.pop("authorization", None); h.pop("Cookie", None); h.pop("Authorization", None)
+    if cred.startswith("Bearer "):
+        h["Authorization"] = cred
+    else:
+        h["Cookie"] = cred
+
+
 def _send_raw(method, url, headers, body, cookie=None):
     h = {k: v for k, v in headers.items() if k not in _DROP}
     if cookie:
-        h["Cookie"] = cookie
+        _apply_cred(h, cookie)
     data = body.encode("utf-8") if body else None
     req = urllib.request.Request(url, data=data, method=method, headers={k: v for k, v in h.items() if k})
     try:
@@ -127,40 +138,98 @@ def pick_verify_ex(exchanges):
     return None
 
 
-def authenticate(template, user, pw, cur_cookie=None, verify_ex=None):
-    """로그인 요청 전송 → **양성 성공 검증** 통과 시 세션 쿠키 반환, 아니면 None.
+_TOKEN_KEY = re.compile(r"csrf|xsrf|_token|authenticity|nonce|verificationtoken", re.I)
+_BEARER_KEYS = ("access_token", "accessToken", "token", "jwt", "id_token", "idToken", "authToken")
 
-    실패 문구 부재만으로 성공 판정하지 않는다(silent auth failure 방지):
-    verify_ex(인증 필요 엔드포인트)를 새 세션으로 프로브해 차단이 아니어야 성공.
-    프로브 대상이 없으면 Set-Cookie 로 세션이 새로 발급된 경우만 성공 인정.
+
+def _extract_token(html, tkey):
+    """HTML/응답에서 CSRF 토큰 값 추출(hidden input 순서 무관 + meta 태그)."""
+    for pat in (r'name=["\']?%s["\']?[^>]*?value=["\']([^"\']+)',
+                r'value=["\']([^"\']+)["\'][^>]*?name=["\']?%s'):
+        m = re.search(pat % re.escape(tkey), html, re.I | re.S)
+        if m:
+            return m.group(1)
+    m = re.search(r'<meta[^>]+(?:csrf|token)[^>]+content=["\']([^"\']+)', html, re.I)
+    return m.group(1) if m else None
+
+
+def _fetch_csrf(template, cookie):
+    """로그인에 CSRF 토큰 파라미터가 있으면 폼 페이지를 GET 해 신선한 토큰(+세션쿠키) 확보.
+    → (token_key, token_val, cookie) 또는 None(토큰 불필요/획득 실패)."""
+    ex = template["ex"]
+    names = [k for k, _ in ex["query"]] + [k for k, _, _ in _body_params(ex)]
+    tkey = next((n for n in names if _TOKEN_KEY.search(n)), None)
+    if not tkey:
+        return None
+    ref = ex["req_headers"].get("referer", "")
+    pr = urlparse(ex["url"])
+    form_url = ref if ref.startswith("http") else f"{pr.scheme}://{pr.netloc}/"
+    r = _send_raw("GET", form_url, {}, None, cookie)
+    if not r:
+        return None
+    tok = _extract_token(r[2], tkey)
+    if not tok:
+        return None
+    return tkey, tok, (_cookie_from(r[1]) or cookie)
+
+
+def _bearer_from(rb):
+    """JSON 로그인 응답에서 bearer 토큰 추출(access_token/token/jwt 등, data 중첩 포함)."""
+    try:
+        obj = __import__("json").loads(rb)
+    except Exception:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    src = dict(obj)
+    if isinstance(obj.get("data"), dict):
+        src.update(obj["data"])
+    for k in _BEARER_KEYS:
+        v = src.get(k)
+        if isinstance(v, str) and len(v) > 10:
+            return v
+    return None
+
+
+def authenticate(template, user, pw, cur_cookie=None, verify_ex=None):
+    """로그인 요청 전송 → **양성 성공 검증** 통과 시 세션 자격(Cookie 또는 'Bearer …') 반환, 아니면 None.
+
+    - CSRF 토큰 파라미터가 있으면 폼 페이지에서 신선한 토큰을 받아 주입(사이트 무관).
+    - JSON 로그인은 응답의 bearer 토큰을 세션 자격으로 사용(Authorization 헤더).
+    - 성공 판정: verify_ex(인증 엔드포인트) 프로브 통과 우선, 없으면 새 쿠키/토큰 발급.
     """
     ex = template["ex"]
     pr = urlparse(ex["url"])
     ct = (ex["req_headers"].get("content-type") or "").lower()
-    # 요청 헤더(쿠키만 교체 가능), user/pw 치환
     hdr = {k: v for k, v in ex["req_headers"].items()
            if k not in ("content-length", "host", "connection", "accept-encoding")}
+    # CSRF: 신선한 토큰(+폼 세션쿠키) 확보
+    csrf = _fetch_csrf(template, cur_cookie)
+    tkey, tval = (csrf[0], csrf[1]) if csrf else (None, None)
+    if csrf:
+        cur_cookie = csrf[2]
+        print(f"[*] 로그인 CSRF 토큰 확보: {tkey}")
+    hdr.pop("cookie", None)
     if cur_cookie:
         hdr["Cookie"] = cur_cookie
-    def _sub(pairs):
-        d = dict(pairs)
+
+    def _setp(d):
         d[template["user_key"]] = user; d[template["pw_key"]] = pw
-        return urlencode(d)
+        if tkey:
+            d[tkey] = tval
+        return d
     body = None
-    if ex["method"] == "POST":
-        if "application/json" in ct:
-            import json as _j
-            try:
-                obj = _j.loads(ex["req_body"] or "{}")
-            except Exception:
-                obj = {}
-            obj[template["user_key"]] = user; obj[template["pw_key"]] = pw
-            body = _j.dumps(obj)
-        else:
-            body = _sub(parse_qsl(ex["req_body"] or "", keep_blank_values=True))
-        url = ex["url"]
-    else:  # GET 로그인
-        url = pr._replace(query=_sub(parse_qsl(pr.query, keep_blank_values=True))).geturl()
+    if ex["method"] == "POST" and "application/json" in ct:
+        import json as _j
+        try:
+            obj = _j.loads(ex["req_body"] or "{}")
+        except Exception:
+            obj = {}
+        body = _j.dumps(_setp(obj)); url = ex["url"]
+    elif ex["method"] == "POST":
+        body = urlencode(_setp(dict(parse_qsl(ex["req_body"] or "", keep_blank_values=True)))); url = ex["url"]
+    else:
+        url = pr._replace(query=urlencode(_setp(dict(parse_qsl(pr.query, keep_blank_values=True))))).geturl()
     data = body.encode("utf-8") if body else None
     req = urllib.request.Request(url, data=data, method=ex["method"],
                                  headers={k: v for k, v in hdr.items() if k})
@@ -176,19 +245,21 @@ def authenticate(template, user, pw, cur_cookie=None, verify_ex=None):
     if _AUTHFAIL.search(rb):
         print(f"[!] 로그인 실패(자격증명 오류 응답): user={_mask(user)}"); return None
     new_cookie = _cookie_from(rh)
-    post_cookie = new_cookie or cur_cookie
+    bearer = None if new_cookie else _bearer_from(rb)     # 쿠키 없으면 JSON bearer 시도
+    cred = new_cookie or (("Bearer " + bearer) if bearer else None) or cur_cookie
+    kind = "쿠키갱신" if new_cookie else ("Bearer토큰" if bearer else "세션유지")
     # ── 양성 성공 검증 ──
     if verify_ex is not None:
-        pr = _send_raw(verify_ex["method"], verify_ex["url"], verify_ex["req_headers"], None, post_cookie)
-        if _blocked(pr):
+        pr2 = _send_raw(verify_ex["method"], verify_ex["url"], verify_ex["req_headers"], None, cred)
+        if _blocked(pr2):
             print(f"[!] 로그인 검증 실패 — 세션 미확보(인증 엔드포인트 차단): user={_mask(user)}")
             return None
-        print(f"[*] 로그인 성공(검증됨): user={_mask(user)} · 세션 {'갱신' if new_cookie else '유지'}")
-        return post_cookie
-    if new_cookie:
-        print(f"[*] 로그인 성공(세션 발급): user={_mask(user)}")
-        return new_cookie
-    print(f"[!] 로그인 검증 불가 — Set-Cookie 없음·프로브 대상 없음: user={_mask(user)} → 실패 처리")
+        print(f"[*] 로그인 성공(검증됨): user={_mask(user)} · {kind}")
+        return cred
+    if new_cookie or bearer:
+        print(f"[*] 로그인 성공({kind}): user={_mask(user)}")
+        return cred
+    print(f"[!] 로그인 검증 불가 — 세션/토큰 미발급·프로브 대상 없음: user={_mask(user)} → 실패 처리")
     return None
 
 
