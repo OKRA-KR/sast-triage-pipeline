@@ -435,22 +435,35 @@ def _stored_xss(reps, ck_a, add):
     """저장→재조회 2단계. 상태변경 요청의 텍스트 파라미터에 마커를 저장하고,
     GET 엔드포인트들을 재조회해 마커가 미이스케이프로 반사되면 저장형 XSS 확정."""
     writers = [ex for ex in reps if ex["method"] in ("POST", "PUT", "PATCH") and not _is_read(ex)]
-    injected = 0
+    writes = []                              # 주입한 (writer, key) — 2단계 PoC 용
     for ex in writers:
         for key, val, loc in _params(ex):
             if _looks_text(val):
                 u, b = _mutate(ex, key, loc, _STORED_PAYLOAD)
                 if _send(ex["method"], u, _headers_for(ex, ck_a), b):
-                    injected += 1
-    if not injected:
+                    writes.append((ex, key))
+    if not writes:
         return
     for ex in [e for e in reps if e["method"] == "GET"]:
         r = _send("GET", ex["url"], _headers_for(ex, ck_a), None)
         if r and _STORED_RAW in r[2]:      # '<okrStored9z' 그대로 = '<' 미이스케이프
-            add(_f("xss", "high", ex, "(저장형)", _STORED_PAYLOAD,
+            f = _f("xss", "high", ex, "(저장형)", _STORED_PAYLOAD,
                    f"저장형 XSS — 주입 마커가 {ex['path']} 응답에 미이스케이프 반사(저장→재조회 확인)",
-                   "true_positive"))
+                   "true_positive")
+            f["poc"] = _stored_poc(writes, ex)      # 저장(주입)→조회(반사) 2단계 재현
+            add(f)
             return
+
+
+def _stored_poc(writes, read_ex):
+    """저장형 XSS 2단계 재현: 1) 마커 저장(쓰기)  2) 조회(반사 확인)."""
+    lines = ["# 1) 저장(payload 주입):"]
+    for wex, key in writes[:3]:              # 대표 쓰기 요청 몇 개
+        lines.append(_build_poc(wex, key, _STORED_PAYLOAD))
+    lines.append("# 2) 조회(미이스케이프 반사 확인):")
+    lines.append(_build_poc(read_ex, "(조회)", ""))
+    lines.append(f"#    → 응답에 '{_STORED_RAW}' 가 그대로 있으면 저장형 XSS")
+    return "\n".join(lines)
 
 
 def _loc_of(ex, key):
