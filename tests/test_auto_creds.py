@@ -24,6 +24,29 @@ def test_no_success_no_creds():
     assert login.derive_credentials(exs, t) is None
 
 
+def _ex2(user, pw, resp_hdr, resp_body, status="200"):
+    return capture._mk("POST", "https://s/login",
+                       {"content-type": "application/x-www-form-urlencoded"},
+                       f"username={user}&password={pw}", "", resp_hdr, resp_body, status, "")
+
+
+def test_site_agnostic_setcookie_redirect():
+    # gparking 특유 문자열 없음 — Set-Cookie + 302 로 성공 판정(사이트 무관)
+    exs = [_ex2("bob", "wrong", "", "Invalid credentials"),
+           _ex2("bob", "s3cret", "Set-Cookie: SID=abc; Path=/", "Redirecting...", "302")]
+    t = {"ex": exs[0], "user_key": "username", "pw_key": "password"}
+    assert login.derive_credentials(exs, t) == ("bob", "s3cret")
+
+
+def test_site_agnostic_differential_fallback():
+    # 성공힌트/쿠키 없이도, 실패 다수와 '다른' 응답을 성공 후보로(차등)
+    exs = [_ex2("bob", "a", "", "error error error"),
+           _ex2("bob", "b", "", "error error error"),
+           _ex2("bob", "realpw", "", "Home page with your profile and settings and data here " * 5)]
+    t = {"ex": exs[0], "user_key": "username", "pw_key": "password"}
+    assert login.derive_credentials(exs, t) == ("bob", "realpw")
+
+
 def test_build_sessions_auto_login(monkeypatch):
     # env 자격증명 없이도 캡처 성공로그인으로 세션 확보
     monkeypatch.delenv("SAST_LOGIN_USER", raising=False)

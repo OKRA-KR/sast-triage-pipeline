@@ -196,8 +196,10 @@ _PATH_DISC = re.compile(r"([A-Za-z]:\\[\w\\]+|/var/www/[\w/]+|/home/\w+/[\w/]+|/
 _SENS_URLKEY = re.compile(r"^(pwd|passwd|password|pass|pw|token|secret|api[_-]?key|apikey|"
                           r"access[_-]?token|session|sessionid|otp|auth|jwt|rrn|ssn|card)$", re.I)
 _AUTHFAIL = re.compile(r"(비밀번호가?\s*(맞지|틀|일치하지)|존재하지\s*않는\s*(아이디|계정|회원)|"
-                       r"등록되지\s*않은|없는\s*아이디|incorrect password|wrong password|"
-                       r"invalid password|user (does not|doesn'?t) exist|no such user|unknown user)", re.I)
+                       r"등록되지\s*않은|없는\s*아이디|아이디\s*(또는|또넌)\s*비밀번호|"
+                       r"incorrect password|wrong password|invalid password|invalid (username|login|credential)|"
+                       r"bad credential|authentication failed|login failed|로그인\s*(실패|되지)|"
+                       r"user (does not|doesn'?t) exist|no such user|unknown user|access denied)", re.I)
 _CSRF_TOKEN = re.compile(r"csrf|xsrf|_token|authenticity|nonce", re.I)
 
 

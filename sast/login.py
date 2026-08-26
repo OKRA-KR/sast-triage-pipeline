@@ -12,7 +12,7 @@ PW 는 로그에 마스킹. 인가 대상 전용.
 """
 import os, re, ssl, urllib.request, urllib.error
 from urllib.parse import urlparse, parse_qsl, urlencode
-from .capture import _AUTHFAIL, _body_params
+from .capture import _AUTHFAIL, _body_params, _headers
 from .schema import new_finding
 from . import env
 
@@ -214,16 +214,31 @@ class Session:
 WEAK_PW = ["1234", "12345", "123456", "1111", "0000", "admin", "password", "passwd",
            "test", "qwerty", "1q2w3e", "p@ssw0rd", "asdf", "12341234", "a1234567",
            "<user>", "<user>123", "<user>1234"]
-_SUCCESS = re.compile(r"success|\"result\"\s*:\s*(?:true|1|\"?success)|로그인\s*성공", re.I)
+# 사이트 무관 성공 '힌트'(문자열은 보조 신호일 뿐 — 핵심은 새 세션쿠키/리다이렉트/실패대비 차등)
+_SUCCESS_HINT = re.compile(r"success|\btoken\b|access_token|welcome|dashboard|logout|로그아웃|"
+                           r"로그인\s*성공|\"result\"\s*:\s*(?:true|1|\"?success)", re.I)
 # 락아웃/레이트리밋 신호 (정상 '비밀번호 틀림'과 구분 — _blocked 의 로그인문구와 혼동 금지)
 _LOCKOUT = re.compile(r"too\s*many|locked|lockout|rate.?limit|잠(?:금|겼|김)|차단|일시(?:적|정지)|"
                       r"시도.*제한|제한.*시도|blocked", re.I)
 
 
-def _login_ok(rb, rh):
+def _resp_success(rb, rh, status=None):
+    """사이트 무관 로그인 성공 판정(행위 우선). 실패(_AUTHFAIL/로그인화면)면 False.
+    새 세션쿠키 발급 · 3xx 리다이렉트 · 성공 힌트(logout/token/welcome/success/...) 중 하나면 True."""
+    rb = rb or ""
     if _AUTHFAIL.search(rb):
         return False
-    return bool(_SUCCESS.search(rb) or _cookie_from(rh))
+    if _cookie_from(rh or {}):                       # 새 세션 발급 = 강한 성공 신호
+        return True
+    if status and 300 <= int(status) < 400:          # 대시보드로 리다이렉트
+        return True
+    if _SUCCESS_HINT.search(rb) and not _LOGIN_SIG.search(rb):
+        return True
+    return False
+
+
+def _login_ok(rb, rh, status=None):
+    return _resp_success(rb, rh, status)
 
 
 def _attempt(template, user, pw):
@@ -253,7 +268,7 @@ def _attempt(template, user, pw):
         return None
     if r[0] in (429, 403) or _LOCKOUT.search(r[2][:800]):   # 락아웃/레이트리밋(정상 실패와 구분)
         return "blocked"
-    return "success" if _login_ok(r[2], r[1]) else "fail"
+    return "success" if _login_ok(r[2], r[1], r[0]) else "fail"
 
 
 def brute_force(exchanges, user, words=None, cap=None):
@@ -333,18 +348,39 @@ def working_session(exchanges):
     return False, None, None
 
 
+def _login_creds(ex, uk, pk):
+    vals = dict(ex["query"]); vals.update({k: v for k, v, _ in _body_params(ex)})
+    return vals.get(uk), vals.get(pk)
+
+
 def derive_credentials(exchanges, template):
-    """캡처의 '성공한 로그인' 요청에서 user/pw 값을 추출 → 자동 로그인용. 없으면 None.
-    (실행자가 env 자격증명을 안 줘도, 캡처에 이미 있는 성공 로그인으로 신선한 세션을 만든다)."""
+    """캡처의 '성공한 로그인' 요청에서 user/pw 추출 → 자동 로그인용(사이트 무관). 없으면 None.
+
+    성공 판정은 행위 기반(_resp_success): 새 세션쿠키·리다이렉트·성공힌트. 특정 사이트 문자열에
+    의존하지 않는다. 명확한 성공이 없으면, 다수(실패)와 '다른' 응답의 로그인을 성공 후보로 본다.
+    """
     uk, pk = template["user_key"], template["pw_key"]
     lp = template["ex"]["path"]
-    for ex in exchanges:
-        if ex["path"] != lp:
-            continue
-        vals = dict(ex["query"]); vals.update({k: v for k, v, _ in _body_params(ex)})
-        u, p = vals.get(uk), vals.get(pk)
-        if u and p and _SUCCESS.search(ex.get("resp_body", "") or "") and not _AUTHFAIL.search(ex.get("resp_body", "") or ""):
-            return u, p
+    cands = [ex for ex in exchanges if ex["path"] == lp and all(_login_creds(ex, uk, pk))]
+    if not cands:
+        return None
+    # 1) 행위 기반 성공 응답
+    for ex in cands:
+        rh = _headers(ex.get("resp_headers", "") or "")
+        st = ex.get("status") if str(ex.get("status", "")).isdigit() else None
+        if _resp_success(ex.get("resp_body", "") or "", rh, st):
+            return _login_creds(ex, uk, pk)
+    # 2) 차등 폴백 — 실패 응답이 다수 클러스터를 이루면, 그와 '다른' 응답이 성공 후보
+    from collections import Counter
+    def sig(ex):
+        body = ex.get("resp_body", "") or ""
+        return (str(ex.get("status", "")), len(body) // 64, bool(_AUTHFAIL.search(body)))
+    sigs = [sig(ex) for ex in cands]
+    if len(set(sigs)) > 1:
+        common = Counter(sigs).most_common(1)[0][0]
+        for ex in cands:
+            if sig(ex) != common and not _AUTHFAIL.search(ex.get("resp_body", "") or ""):
+                return _login_creds(ex, uk, pk)
     return None
 
 
