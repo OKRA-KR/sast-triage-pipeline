@@ -157,7 +157,13 @@ def endpoints(exs):
 
 def write_endpoints_csv(inv, path):
     inv = sorted(inv, key=lambda e: (e["path"], e["method"]))
-    with open(path, "w", newline="", encoding="utf-8-sig") as fh:
+    try:
+        fh = open(path, "w", newline="", encoding="utf-8-sig")
+    except OSError as e:
+        # 파일 잠김(엑셀 등이 열어둠)·권한 문제로 CSV 를 못 써도 스캔 전체를 중단시키지 않는다.
+        print(f"[!] endpoints.csv 기록 실패: {e} — 그 파일을 연 프로그램(엑셀 등)을 닫고 재시도. (스캔 결과 자체는 정상 저장)")
+        return None
+    with fh:
         w = csv.writer(fh)
         w.writerow(["method", "path", "params", "param_locations", "auth_required",
                     "state_changing", "content_types", "statuses", "hits", "sample_url"])
