@@ -84,6 +84,11 @@ _DROP = {"content-length", "host", "connection", "accept-encoding", "cookie"}
 _LOGIN_SIG = re.compile(r"(login|signin|로그인|비밀번호|아이디를?\s*입력|인증이?\s*필요|세션이?\s*만료)", re.I)
 
 
+class _NoRedirectH(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
 def _apply_cred(h, cred):
     """세션 자격을 헤더에 적용 — 'Bearer …'면 Authorization, 아니면 Cookie."""
     if not cred:
@@ -153,24 +158,27 @@ def _extract_token(html, tkey):
     return m.group(1) if m else None
 
 
-def _fetch_csrf(template, cookie):
-    """로그인에 CSRF 토큰 파라미터가 있으면 폼 페이지를 GET 해 신선한 토큰(+세션쿠키) 확보.
-    → (token_key, token_val, cookie) 또는 None(토큰 불필요/획득 실패)."""
+def _prime(template, cookie):
+    """로그인 전 폼 페이지를 GET 해 **세션 쿠키를 먼저 확보**(Spring Security 등 세션 프라이밍)
+    + CSRF 토큰이 있으면 신선한 값 추출. → (cookie, token_key, token_val).
+
+    사전 세션 없이 로그인 POST 하면 실패하는 프레임워크(Spring/Django/…) 대응. 폼 페이지는
+    Referer > 로그인 URL(GET) > origin 순으로 시도."""
     ex = template["ex"]
     names = [k for k, _ in ex["query"]] + [k for k, _, _ in _body_params(ex)]
     tkey = next((n for n in names if _TOKEN_KEY.search(n)), None)
-    if not tkey:
-        return None
     ref = ex["req_headers"].get("referer", "")
     pr = urlparse(ex["url"])
-    form_url = ref if ref.startswith("http") else f"{pr.scheme}://{pr.netloc}/"
-    r = _send_raw("GET", form_url, {}, None, cookie)
-    if not r:
-        return None
-    tok = _extract_token(r[2], tkey)
-    if not tok:
-        return None
-    return tkey, tok, (_cookie_from(r[1]) or cookie)
+    for form_url in [u for u in (ref if ref.startswith("http") else None, ex["url"],
+                                 f"{pr.scheme}://{pr.netloc}/") if u]:
+        r = _send_raw("GET", form_url, {}, None, cookie)
+        if not r:
+            continue
+        new_ck = _cookie_from(r[1])
+        tval = _extract_token(r[2], tkey) if tkey else None
+        if new_ck or tval:                      # 세션 또는 토큰 확보되면 사용
+            return (new_ck or cookie), tkey, tval
+    return cookie, tkey, None
 
 
 def _bearer_from(rb):
@@ -203,11 +211,9 @@ def authenticate(template, user, pw, cur_cookie=None, verify_ex=None):
     ct = (ex["req_headers"].get("content-type") or "").lower()
     hdr = {k: v for k, v in ex["req_headers"].items()
            if k not in ("content-length", "host", "connection", "accept-encoding")}
-    # CSRF: 신선한 토큰(+폼 세션쿠키) 확보
-    csrf = _fetch_csrf(template, cur_cookie)
-    tkey, tval = (csrf[0], csrf[1]) if csrf else (None, None)
-    if csrf:
-        cur_cookie = csrf[2]
+    # 세션 프라이밍(폼 페이지 GET → 세션쿠키 + CSRF 토큰)
+    cur_cookie, tkey, tval = _prime(template, cur_cookie)
+    if tkey and tval:
         print(f"[*] 로그인 CSRF 토큰 확보: {tkey}")
     hdr.pop("cookie", None)
     if cur_cookie:
@@ -233,21 +239,33 @@ def authenticate(template, user, pw, cur_cookie=None, verify_ex=None):
     data = body.encode("utf-8") if body else None
     req = urllib.request.Request(url, data=data, method=ex["method"],
                                  headers={k: v for k, v in hdr.items() if k})
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT, context=_ctx()) as r:
-            rb = r.read(20000).decode("utf-8", "replace")
+    try:   # 리다이렉트 비추적 — 성공 302 의 Set-Cookie(새 세션)·Location 을 직접 확인
+        opener = urllib.request.build_opener(_NoRedirectH, urllib.request.HTTPSHandler(context=_ctx()))
+        with opener.open(req, timeout=TIMEOUT) as r:
+            status = r.status; rb = r.read(20000).decode("utf-8", "replace")
             rh = {k.lower(): v for k, v in r.headers.items()}
     except urllib.error.HTTPError as e:
-        rb = e.read(20000).decode("utf-8", "replace") if hasattr(e, "read") else ""
+        status = e.code; rb = e.read(20000).decode("utf-8", "replace") if hasattr(e, "read") else ""
         rh = {k.lower(): v for k, v in (e.headers or {}).items()}
     except Exception as ex_e:
         print(f"[!] 로그인 요청 실패: {str(ex_e)[:100]}"); return None
-    if _AUTHFAIL.search(rb):
-        print(f"[!] 로그인 실패(자격증명 오류 응답): user={_mask(user)}"); return None
+    loc = rh.get("location", "")
+    fail_redirect = 300 <= status < 400 and re.search(r"error|fail|invalid|denied|/login", loc, re.I)
+    if _AUTHFAIL.search(rb) or fail_redirect:
+        print(f"[!] 로그인 실패(자격증명 오류): user={_mask(user)}"); return None
     new_cookie = _cookie_from(rh)
     bearer = None if new_cookie else _bearer_from(rb)     # 쿠키 없으면 JSON bearer 시도
-    cred = new_cookie or (("Bearer " + bearer) if bearer else None) or cur_cookie
+    # 성공: 새 세션쿠키 or (로그인 아닌 곳으로 302) or bearer → 그 자격 사용
+    if new_cookie:
+        cred = new_cookie
+    elif bearer:
+        cred = "Bearer " + bearer
+    elif 300 <= status < 400:                             # 세션 유지한 채 성공 리다이렉트
+        cred = cur_cookie
+    else:
+        cred = cur_cookie
     kind = "쿠키갱신" if new_cookie else ("Bearer토큰" if bearer else "세션유지")
+    success_redirect = 300 <= status < 400 and not fail_redirect     # 로그인 아닌 곳으로 302 = 성공
     # ── 양성 성공 검증 ──
     if verify_ex is not None:
         pr2 = _send_raw(verify_ex["method"], verify_ex["url"], verify_ex["req_headers"], None, cred)
@@ -256,7 +274,7 @@ def authenticate(template, user, pw, cur_cookie=None, verify_ex=None):
             return None
         print(f"[*] 로그인 성공(검증됨): user={_mask(user)} · {kind}")
         return cred
-    if new_cookie or bearer:
+    if new_cookie or bearer or success_redirect or _resp_success(rb, rh, status):
         print(f"[*] 로그인 성공({kind}): user={_mask(user)}")
         return cred
     print(f"[!] 로그인 검증 불가 — 세션/토큰 미발급·프로브 대상 없음: user={_mask(user)} → 실패 처리")
