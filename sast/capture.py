@@ -188,8 +188,14 @@ _SEC_HEADERS = {
 }
 _HTML_ONLY = {"content-security-policy", "x-frame-options", "referrer-policy", "permissions-policy"}
 
-_SQL_ERR = re.compile(r"SQL syntax|mysql_fetch|mysqli|ORA-\d{5}|SQLite3?::|PostgreSQL.*ERROR|"
-                      r"Unclosed quotation|Warning: pg_|You have an error in your SQL", re.I)
+_SQL_ERR = re.compile(
+    r"SQL syntax|mysql_fetch|mysqli|ORA-\d{5}|SQLite3?::|PostgreSQL.*ERROR|"
+    r"Unclosed quotation|Warning: pg_|You have an error in your SQL|"
+    # HSQLDB/Java JDBC (WebGoat 등) · MSSQL · 일반 SQL 오류
+    r"SQLSyntaxErrorException|SQLException|malformed string|unexpected token|unterminated|"
+    r"org\.hsqldb|java\.sql\.SQL|JDBCException|quoted string not properly terminated|"
+    r"syntax error at or near|Incorrect syntax near|Conversion failed|"
+    r"ODBC.*Driver|Microsoft OLE DB|Sybase.*message", re.I)
 _STACK = re.compile(r"(Exception in thread|at [a-zA-Z_][\w.]+\([\w.]+:\d+\)|Traceback \(most recent|"
                     r"Fatal error:|Warning: \w+\(\)|Notice: |Stack trace:|\bstacktrace\b)", re.I)
 _PATH_DISC = re.compile(r"([A-Za-z]:\\[\w\\]+|/var/www/[\w/]+|/home/\w+/[\w/]+|/usr/local/[\w/]+|/opt/[\w/]+)")
