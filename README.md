@@ -16,18 +16,21 @@ Track C (캡처 파일)  → 패시브 분석  Burp/HAR 오프라인 파싱 → 
 **환경 게이팅**: 기본 **폐쇄망(offline)** → 1계층만(외부통신 0). `--online`(또는 `SAST_ONLINE=1`) +
 LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망에선 LLM 계층이 아예 실행되지 않음.
 
+**하나의 진입점 — 인자를 자동판별**한다: 폴더=소스(SAST) · `http(s)://`=URL(DAST) · 파일=캡처(패시브).
+여러 개를 같이 주면 통합 스캔 + 상관분석까지 한 번에. `./okra` 는 `./sast-run.sh` 별칭.
 ```bash
-./sast-run.sh <대상>                         # 폐쇄망: 1계층만
-./sast-run.sh <대상> --deep                  # + CodeQL taint
-./sast-run.sh <대상> --deep --verify <URL>   # + 블랙박스(라이브 수동 점검)
-./sast-run.sh <대상> --deep --online         # 개방망: 2·3계층(LLM) 활성화 (SAST_LLM_KEY 필요)
-./sast-run.sh --verify <URL>                 # 소스 없이 URL 전용 점검(블랙박스)
-./sast-run.sh --verify <URL> --active        # URL 능동 DAST (인가 대상 전용, payload 주입)
-./sast-run.sh --verify <URL> --active --cookie 'PHPSESSID=..'   # 세션 쿠키로 인증된 상태 점검
-./sast-run.sh --verify <URL> --okra --cookie 'PHPSESSID=..'     # OKRA DAST(엔진 OWASP ZAP: spider+AJAX+active scan + 중요정보 스캔)
-./sast-run.sh --capture capture.xml                            # 패시브: Burp/HAR 오프라인 분석 → endpoints.csv + 취약점(패킷0)
-./sast-run.sh --capture capture.xml --active                   # + 식별된 엔드포인트 정밀 능동 점검(인가 전용, 패킷 전송)
-#   <대상> = 로컬경로 | git URL | owner/repo | targets/ 폴더명   (대상 생략 + --verify/--capture = 소스 없이 점검)
+./okra ./myapp                               # 소스 SAST (폐쇄망: 1계층만, 패킷0)
+./okra ./myapp --deep                        # + CodeQL taint
+./okra https://app.example.com              # URL 점검(안전 recon)
+./okra gparking2                             # 캡처 패시브 → endpoints.csv + 취약점(패킷0)
+./okra ./myapp https://app.com cap.har       # 소스+URL+캡처 동시 → 상관분석 자동
+./okra ./myapp --online                      # 개방망: 2·3계층(LLM) 시도 (SAST_LLM_* 필요)
+#  능동 DAST(패킷 전송, 인가 대상 전용) — 명시 옵트인:
+./okra https://app.example.com --active --cookie 'PHPSESSID=..'   # 경량 능동
+./okra https://app.example.com --okra  --cookie 'PHPSESSID=..'    # OKRA DAST(엔진 OWASP ZAP)
+./okra gparking2 --active --cookie 'PHPSESSID=..'                  # 캡처 replay(실요청 재전송)
+#   대상 형태: 폴더 | http(s)URL | Burp/HAR 파일 | gitURL(.git) | owner/repo | targets/폴더명
+#   기본=오프라인·비파괴. 명시 플래그(--verify/--capture)로 강제 지정도 가능(하위호환).
 ```
 
 LLM 계층 설정: `SAST_LLM_KEY`(필수), `SAST_LLM_ENDPOINT`(기본 Anthropic), `SAST_LLM_MODEL`(기본 claude-opus-5).

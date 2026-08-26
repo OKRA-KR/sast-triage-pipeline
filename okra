@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# OKRA 진입 별칭 — sast-run.sh 로 위임(인자 자동판별 통합 스캔).
+#   ./okra <폴더|URL|캡처> [...] [--active]
+exec "$(cd "$(dirname "$0")" && pwd)/sast-run.sh" "$@"

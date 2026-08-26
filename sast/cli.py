@@ -1,20 +1,45 @@
 """SAST+DAST CLI 진입점.
 
-Track A (Repo 있음)  → SAST:  1계층(오프라인 룰+트리아지) → 2계층(LLM 트리아지) → 3계층(LLM 심화)
-Track B (Repo 없음)  → 블랙박스: 라이브 URL 엔드포인트 식별 → 공격 가능 포인트
-
-환경 게이팅: 기본 폐쇄망(offline) → 2·3계층 OFF. `--online`(SAST_ONLINE) + LLM 설정 시만 ON.
-  python3 -m sast scan <target> --out <dir> [--online] [--verify <URL>] [--no-triage]
+인자 자동판별: 폴더=소스(SAST) · http(s)=URL(DAST recon) · 파일=캡처(패시브). 여러 개 동시 가능.
+  python3 -m sast scan <폴더|URL|캡처> ... --out <dir> [--active] [--online]
+흐름: 1계층(오프라인 룰+트리아지, 패킷0) → (있으면) 상관분석 → 2·3계층(LLM, --online+설정 시만).
+안전: 능동 DAST(패킷 전송)는 --active/--okra 로만(인가 대상 전용). 기본은 오프라인/비파괴.
 """
-import argparse, os, sys
+import argparse, os, re, sys
 from .engines import run_all
 from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, capture, correlate, replay, login, report, env
+
+
+def _classify(a):
+    """positional 인자 + 명시 플래그를 폴더(repo)/URL(verify)/캡처파일로 자동 분류."""
+    repo = None
+    verify = a.verify or os.environ.get("SAST_VERIFY_URL")
+    cap = a.capture or os.environ.get("SAST_CAPTURE")
+    for t in (a.targets or []):
+        if re.match(r"https?://", t, re.I):
+            verify = verify or t
+        elif os.path.isdir(t):
+            repo = repo or os.path.abspath(t)
+        elif os.path.isfile(t):
+            cap = cap or os.path.abspath(t)          # 파일 = 캡처(파서가 형식 검증)
+        else:
+            repo = repo or os.path.abspath(t)        # 미존재 경로 → repo 로 시도(래퍼가 clone 후 dir 전달)
+    return repo, verify, cap
+
+
+def _name_of(repo, verify, cap):
+    if repo:
+        return os.path.basename(repo.rstrip("/\\"))
+    if verify:
+        return verify.split("//")[-1].split("/")[0]
+    if cap:
+        return os.path.splitext(os.path.basename(cap))[0]
+    return "scan"
 
 
 def cmd_scan(a):
     out = os.path.abspath(a.out)
     os.makedirs(out, exist_ok=True)
-    verify_url = a.verify or os.environ.get("SAST_VERIFY_URL")
     if a.online:
         os.environ["SAST_ONLINE"] = "1"
     if getattr(a, "insecure", False):
@@ -25,11 +50,12 @@ def cmd_scan(a):
     if a.header:
         os.environ["SAST_HTTP_HEADERS"] = ";;".join(a.header)
 
-    target = os.path.abspath(a.target) if a.target else None
+    target, verify_url, cap = _classify(a)          # 인자 자동판별(폴더/URL/캡처)
     have_repo = bool(target and os.path.isdir(target))
-    name = a.name or (os.path.basename(target.rstrip("/\\")) if have_repo
-                      else (verify_url.split("//")[-1].split("/")[0] if verify_url
-                            else (os.path.splitext(os.path.basename(a.capture))[0] if a.capture else "scan")))
+    name = a.name or _name_of(target, verify_url, cap)
+    kinds = [k for k, v in (("소스", have_repo), ("URL", verify_url), ("캡처", cap)) if v]
+    if kinds:
+        print(f"[*] 입력 인식: {', '.join(kinds)}")
 
     findings, engines, layers = [], [], []
 
@@ -41,11 +67,10 @@ def cmd_scan(a):
             print("[!] 사용 가능한 엔진이 없습니다 (semgrep 설치 필요)"); return 3
         print(f"[*] 엔진: {', '.join(engines)}  원시 {len(findings)}건")
         layers.append("layer1")
-    elif not verify_url and not (a.capture or os.environ.get("SAST_CAPTURE")):
-        print(f"[!] 대상 경로가 없고 --verify/--capture 도 없습니다: {a.target}"); return 2
+    elif not verify_url and not cap:
+        print("[!] 스캔할 대상이 없습니다 — 폴더(소스)/URL/캡처파일 중 하나 이상을 주세요"); return 2
 
     # ── Track C : 패시브 트래픽 분석 (오프라인, 패킷 0) ──────────
-    cap = a.capture or os.environ.get("SAST_CAPTURE")
     exs = None
     if cap:
         if not os.path.isfile(cap):
@@ -129,8 +154,9 @@ def cmd_scan(a):
 def main(argv=None):
     p = argparse.ArgumentParser(prog="sast", description="repo-무관 SAST+DAST (오프라인 우선, 계층형)")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sc = sub.add_parser("scan", help="repo 스캔 / 블랙박스 점검")
-    sc.add_argument("target", nargs="?", default=None, help="스캔 대상 repo 경로(없으면 블랙박스만)")
+    sc = sub.add_parser("scan", help="소스/URL/캡처 자동판별 통합 스캔")
+    sc.add_argument("targets", nargs="*", default=[],
+                    help="대상(여러 개 가능): 폴더=소스 · http(s)=URL · 파일=캡처. 자동 판별.")
     sc.add_argument("--out", required=True, help="결과 출력 폴더")
     sc.add_argument("--name", default=None, help="표시 이름(기본: 폴더명/호스트)")
     sc.add_argument("--online", action="store_true", help="개방망: 2·3계층(LLM) 활성화")
