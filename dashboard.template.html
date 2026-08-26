@@ -2,7 +2,7 @@
 <html lang="ko" data-theme="dark">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SAST 결과 대시보드</title>
+<title>OKRA — SAST+DAST 결과</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
@@ -97,7 +97,7 @@ footer{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--line);font-si
 </head>
 <body>
 <div id="drop"><div class="box" id="dropbox">
-  <h2>SAST 결과 불러오기</h2>
+  <h2>OKRA 결과 불러오기(results.json)</h2>
   <p><code>results.json</code> 파일을 여기로 드래그하거나 아래 버튼으로 선택하세요.</p>
   <p class="mono" style="font-size:11px;opacity:.6">pipeline.py 가 만든 표준 스키마(sast-results/1)를 읽습니다.</p>
   <label class="file">results.json 선택<input type="file" id="fileTop" accept=".json"></label>
@@ -157,7 +157,10 @@ const CATKO = {
   "ci-hardening":"CI 하드닝","supply-chain":"공급망","csrf":"CSRF","log-injection":"로그 인젝션",
   "insecure-cookie":"취약한 쿠키","sensitive-data":"중요정보/개인정보","toctou":"시간/상태(TOCTOU)",
   "ssrf":"SSRF","type-confusion":"타입 혼동","security-misconfig":"보안설정(헤더/CORS)",
-  "file-upload":"파일 업로드","request-smuggling":"요청 스머글링","other":"기타"};
+  "file-upload":"파일 업로드","request-smuggling":"요청 스머글링",
+  "cors-misconfig":"CORS 오설정","host-header-injection":"Host 헤더 인젝션","crlf-injection":"CRLF 인젝션",
+  "missing-auth":"인증 부재","broken-auth":"인증 우회/약한 자격증명","idor":"IDOR(객체수준 접근통제)",
+  "user-enumeration":"계정 열거","other":"기타"};
 // 세부 category → 분석기준 상위 그룹 (results.json 의 group 필드가 없을 때의 폴백)
 const GROUP={
   "sql-injection":"injection","nosql-injection":"injection","command-injection":"injection",
@@ -172,6 +175,8 @@ const GROUP={
   "hardcoded-secret":"sensitive-exposure","sensitive-data":"sensitive-exposure",
   "info-disclosure":"info-disclosure","ci-hardening":"info-disclosure",
   "iac-misconfig":"misconfiguration","insecure-cookie":"misconfiguration","security-misconfig":"misconfiguration",
+  "cors-misconfig":"misconfiguration","host-header-injection":"misconfiguration","crlf-injection":"injection",
+  "idor":"broken-access","missing-auth":"broken-access","broken-auth":"broken-access","user-enumeration":"info-disclosure",
   "supply-chain":"vulnerable-component"};
 const GROUPKO={injection:"인젝션","xss":"크로스사이트 스크립팅(XSS)","broken-access":"접근통제·요청위조",
   "crypto-failure":"암호화 취약","sensitive-exposure":"중요정보 노출","info-disclosure":"정보 노출",
