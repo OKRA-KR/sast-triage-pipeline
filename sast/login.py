@@ -310,15 +310,14 @@ def _redact(s):
 def working_session(exchanges):
     """전체 점검(--full)용 — '작동하는 인증 세션'을 확보한다. → (ok, sess_a, sess_b).
 
-    우선순위: 로그인 자격증명(SAST_LOGIN_USER/PASS) > 유효 쿠키(--cookie/캡처).
-    - 자격증명: build_sessions 로 로그인 검증. 실패면 ok=False.
+    우선순위: 로그인(env 자격증명 또는 캡처의 성공 로그인 자동추출) > 유효 쿠키(--cookie/캡처).
+    - 로그인: build_sessions 로 신선한 세션 확보. 성공하면 ok=True.
     - 쿠키만: 캡처의 인증 엔드포인트로 프로브해 차단이면 ok=False(만료/무효). 검증불가면 통과.
     - 둘 다 없음: ok=False (계정 없음 → 호출측이 종료).
     """
-    u1, p1 = os.environ.get("SAST_LOGIN_USER"), os.environ.get("SAST_LOGIN_PASS")
-    if u1 and p1:
-        a, b = build_sessions(exchanges)
-        return (a is not None), a, b
+    a, b = build_sessions(exchanges)         # env 자격증명 또는 캡처 자동추출로 로그인
+    if a is not None:
+        return True, a, b
     ck = os.environ.get("SAST_HTTP_COOKIE")
     if ck:
         vx = pick_verify_ex(exchanges)
@@ -334,18 +333,39 @@ def working_session(exchanges):
     return False, None, None
 
 
-def build_sessions(exchanges):
-    """환경변수 자격증명 → (주 세션 A, 보조 세션 B). 캡처에서 로그인 추론.
+def derive_credentials(exchanges, template):
+    """캡처의 '성공한 로그인' 요청에서 user/pw 값을 추출 → 자동 로그인용. 없으면 None.
+    (실행자가 env 자격증명을 안 줘도, 캡처에 이미 있는 성공 로그인으로 신선한 세션을 만든다)."""
+    uk, pk = template["user_key"], template["pw_key"]
+    lp = template["ex"]["path"]
+    for ex in exchanges:
+        if ex["path"] != lp:
+            continue
+        vals = dict(ex["query"]); vals.update({k: v for k, v, _ in _body_params(ex)})
+        u, p = vals.get(uk), vals.get(pk)
+        if u and p and _SUCCESS.search(ex.get("resp_body", "") or "") and not _AUTHFAIL.search(ex.get("resp_body", "") or ""):
+            return u, p
+    return None
 
-    자격증명 없으면 (None, None) — 기존 캡처 쿠키로 진행.
-    로그인 검증 실패 시에도 (None, None) 반환 + 경고(비인증으로 조용히 진행 금지 — 호출측 판단).
+
+def build_sessions(exchanges):
+    """자격증명(env 또는 캡처의 성공 로그인에서 자동추출) → (주 세션 A, 보조 세션 B).
+
+    env 자격증명이 없으면 캡처의 성공 로그인에서 자동추출해 재로그인(신선한 세션).
+    둘 다 없거나 로그인 검증 실패면 (None, None).
     """
     u1, p1 = os.environ.get("SAST_LOGIN_USER"), os.environ.get("SAST_LOGIN_PASS")
-    if not (u1 and p1):
-        return None, None
     tmpl = derive_login(exchanges)
     if not tmpl:
-        print("[!] 로그인 요청을 캡처에서 못 찾음 — 캡처에 로그인 트래픽 포함 필요"); return None, None
+        if u1 and p1:
+            print("[!] 로그인 요청을 캡처에서 못 찾음 — 캡처에 로그인 트래픽 포함 필요")
+        return None, None
+    if not (u1 and p1):                          # env 자격증명 없으면 캡처서 자동추출
+        dc = derive_credentials(exchanges, tmpl)
+        if not dc:
+            return None, None
+        u1, p1 = dc
+        print(f"[*] 캡처의 성공 로그인에서 자격증명 자동추출: user={_mask(u1)} (신선한 세션 재로그인)")
     print(f"[*] 로그인 대상 추론: {tmpl['ex']['method']} {tmpl['ex']['path']} "
           f"(user='{tmpl['user_key']}', pw='{tmpl['pw_key']}')")
     verify_ex = pick_verify_ex(exchanges)

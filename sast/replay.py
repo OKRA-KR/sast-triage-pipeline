@@ -11,7 +11,7 @@ baseline 으로 재전송**하고 파라미터 하나만 변형해 확증한다:
 패킷 전송 → 인가 대상 전용. 캡처의 세션 쿠키(또는 SAST_HTTP_COOKIE)를 그대로 사용.
 비파괴 payload 만(RCE/파일쓰기 없음). 상태변경(POST save 등)은 IDOR 은 읽기형만 시도.
 """
-import json, os, re, ssl, time, urllib.request, urllib.error
+import hashlib, json, os, re, ssl, time, urllib.request, urllib.error
 from urllib.parse import urlparse, parse_qsl, urlencode
 from .schema import new_finding
 from .capture import _SQL_ERR, _IDOR_NAME, _body_params, _headers
@@ -156,6 +156,11 @@ def _resp_len(r):
     return len(r[2]) if r else 0
 
 
+def _ck_fp(ck):
+    """세션 쿠키 지문(값 비노출) — 로그인 전후 세션이 바뀌었는지 비교용."""
+    return ("sess#" + hashlib.sha1(ck.encode()).hexdigest()[:6]) if ck else "-"
+
+
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _KRPHONE = re.compile(r"01[016-9]-?\d{3,4}-?\d{4}")
 _NUMID = re.compile(r"\b\d{5,}\b")
@@ -190,6 +195,10 @@ def scan_capture(exchanges, session=None, session_b=None):
     print(f"[*] replay 검증: 캡처 {len(exchanges)}건 · 호스트 {', '.join(sorted(base_hosts))} (인가 대상 전제·비파괴){mode}")
     print("[*] role: 무인증접근 · SQLi · XSS(반사/저장형) · LFI · SSTI · 명령인젝션 · SSRF · XXE · "
           "오픈리다이렉트 · CRLF · 인증부재/우회 · IDOR(단일/2계정)")
+    eff_ck = (session.cookie if session else None) or os.environ.get("SAST_HTTP_COOKIE")
+    src = "로그인 세션" if session else ("제공 쿠키" if eff_ck else "비인증")
+    print(f"[*] 사용 세션: {src} · 지문 {_ck_fp(eff_ck)}"
+          + (" (로그인 전과 지문 같으면 세션 변화 없음)" if session else ""))
     seen, reps = set(), []
     for ex in exchanges:
         sig = (ex["method"], ex["path"], tuple(sorted(k for k, _, _ in _params(ex))))
