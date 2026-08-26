@@ -20,7 +20,17 @@ HOME = """<html><body><h1>vulnserver</h1>
 <a href="/redirect?url=/home">redirect</a> <a href="/fetch?url=http://example.com">fetch</a>
 <a href="/users">users</a>
 <form action="/save" method="post"><input name="bio" value="x"><input type="submit"></form>
+<script src="/app.js"></script>
 </body></html>"""
+
+# SPA 자율탐색 검증용 — API 엔드포인트가 JS 안에만 정의됨(HTML 링크 없음)
+APP_JS = """
+// SPA bootstrap
+fetch("/api/profile?id=1").then(r=>r.json());
+axios.get("/api/note?text=hello");
+const ep = "/api/search?term=abc";
+$.ajax({url:"/rest/orders?status=open"});
+"""
 
 
 class H(BaseHTTPRequestHandler):
@@ -47,6 +57,14 @@ class H(BaseHTTPRequestHandler):
         p = pr.path
         if p in ("/", "/home"):
             return self._send(HOME)
+        if p == "/app.js":
+            self.send_response(200); self.send_header("Content-Type", "application/javascript"); self.end_headers()
+            return self.wfile.write(APP_JS.encode())
+        if p in ("/api/profile", "/api/note", "/api/search", "/rest/orders"):
+            # JS 에서만 발견되는 API — 파라미터 값 미이스케이프 반사(XSS/SQLi 트리거)
+            val = "".join(unquote_plus(v) for v in q.values())
+            err = "You have an error in your SQL syntax" if "'" in val else ""
+            return self._send(f"<json>{{\"echo\":\"{val}\"}}</json>{err}")
         if p == "/search":
             s = q.get("q", "")
             err = "You have an error in your SQL syntax near ''" if "'" in s else ""

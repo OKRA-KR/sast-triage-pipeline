@@ -61,13 +61,38 @@ def _fetch(url, redirect=True, data=None):
         return None
 
 
+# SPA 자율탐색 — JS 에서 API 엔드포인트 추출
+_JS_CALL = re.compile(r"""(?:fetch|axios(?:\.\w+)?|\.ajax|\.(?:get|post|put|delete|patch)|open|url\s*[:=])\s*\(?\s*["'`]([^"'`]{2,120})["'`]""", re.I)
+_JS_URL = re.compile(r"""["'`](/(?:api|rest|graphql|ajax|service|services|backend|internal|v\d)[a-zA-Z0-9_\-./]{0,80}(?:\?[a-zA-Z0-9_=&%.\-]{0,80})?)["'`]""")
+MAX_JS = int(os.environ.get("SAST_ACTIVE_JS", "20"))
+
+
+def _extract_js_endpoints(js, origin, host):
+    """JS 텍스트에서 API 엔드포인트(URL/경로) 추출 — SPA 의 fetch/axios/ajax 호출·경로 리터럴."""
+    found = set()
+    for rx in (_JS_CALL, _JS_URL):
+        for m in rx.findall(js or ""):
+            if m.startswith("http"):
+                u = m
+            elif m.startswith("/"):
+                u = origin + m
+            else:
+                continue
+            if urlparse(u).netloc and urlparse(u).netloc != host:
+                continue           # 외부 도메인 제외(동일 호스트만)
+            found.add(u.split("#")[0])
+    return found
+
+
 class _Links(HTMLParser):
     def __init__(self):
-        super().__init__(); self.links = []; self.forms = []; self._f = None
+        super().__init__(); self.links = []; self.forms = []; self.scripts = []; self._f = None
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if tag == "a" and a.get("href"):
             self.links.append(a["href"])
+        elif tag == "script" and a.get("src"):
+            self.scripts.append(a["src"])            # SPA JS 번들
         elif tag == "form":
             self._f = {"action": a.get("action", ""), "method": (a.get("method") or "get").lower(), "fields": []}
         elif tag in ("input", "textarea", "select") and self._f is not None and a.get("name"):
@@ -80,7 +105,8 @@ class _Links(HTMLParser):
 def _crawl(base):
     host = urlparse(base).netloc
     origin = "{0.scheme}://{0.netloc}".format(urlparse(base))
-    seen, pages, forms = set(), [], []
+    seen, pages, forms, seen_js = set(), [], [], set()
+    js_eps = 0
     queue = [base] + [origin + p for p in COMMON_PATHS]     # 콘텐츠 발굴 시드
     while queue and len(seen) < MAX_PAGES:
         url = queue.pop(0).split("#")[0]
@@ -99,11 +125,24 @@ def _crawl(base):
         for f in p.forms:
             f["page"] = url; forms.append(f)
         cand = list(p.links) + [urljoin(url, a) for a in (f["action"] for f in p.forms) if a]
-        cand += _EP_RE.findall(r[2])                        # JS/HTML 내 엔드포인트 문자열
+        cand += _EP_RE.findall(r[2])                        # HTML/인라인 JS 내 엔드포인트 문자열
+        cand += list(_extract_js_endpoints(r[2], origin, host))   # 인라인 JS API 호출
+        # SPA: <script src> JS 번들을 받아 API 엔드포인트 추출
+        for s in getattr(p, "scripts", []):
+            su = urljoin(url, s).split("#")[0]
+            if (urlparse(su).netloc == host and ".js" in su.lower()
+                    and su not in seen_js and len(seen_js) < MAX_JS):
+                seen_js.add(su)
+                jr = _fetch(su)
+                if jr and jr[2]:
+                    eps = _extract_js_endpoints(jr[2], origin, host)
+                    js_eps += len(eps); cand += list(eps)
         for href in cand:
             u = urljoin(url, href).split("#")[0]
             if urlparse(u).netloc == host and u not in seen and len(seen) + len(queue) < MAX_PAGES * 3:
                 queue.append(u)
+    if seen_js:
+        print(f"[*] SPA 자율탐색: JS {len(seen_js)}개 분석 · API 엔드포인트 {js_eps}개 추출")
     return pages, forms
 
 
