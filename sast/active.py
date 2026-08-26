@@ -159,10 +159,9 @@ def _probe_point(fetch_with):
     return out
 
 
-def _write_endpoints(pages, forms, out_dir):
-    """크롤로 식별한 페이지/폼 → 엔드포인트 인벤토리 CSV (캡처와 동일 포맷)."""
-    if not out_dir:
-        return
+def _to_exchanges(pages, forms):
+    """크롤로 식별한 페이지/폼 → capture 공통 Exchange 리스트 (replay/인벤토리 공용).
+    쿠키(SAST_HTTP_COOKIE)가 있으면 실어 '인증된 요청'으로 만든다(무인증 스윕이 이걸 벗겨 테스트)."""
     from . import capture
     ck = os.environ.get("SAST_HTTP_COOKIE")
     base_h = {"cookie": ck} if ck else {}
@@ -180,7 +179,23 @@ def _write_endpoints(pages, forms, out_dir):
             h = dict(base_h); h["content-type"] = "application/x-www-form-urlencoded"
             body = "&".join(k + "=" for k in fields)
             exs.append(capture._mk("POST", action, h, body, "", "", "", "", ""))
-    inv = capture.endpoints(exs)
+    return exs
+
+
+def crawl_exchanges(base_url):
+    """URL 크롤 → (exchanges, 페이지수, 폼수). URL 을 replay role 엔진에 먹이기 위한 진입점."""
+    base = base_url.rstrip("/")
+    print(f"[*] URL 크롤(엔드포인트 식별): {base}")
+    pages, forms = _crawl(base)
+    return _to_exchanges(pages, forms), len(pages), len(forms)
+
+
+def _write_endpoints(pages, forms, out_dir):
+    """크롤로 식별한 페이지/폼 → 엔드포인트 인벤토리 CSV (캡처와 동일 포맷)."""
+    if not out_dir:
+        return
+    from . import capture
+    inv = capture.endpoints(_to_exchanges(pages, forms))
     capture.write_endpoints_csv(inv, os.path.join(out_dir, "endpoints.csv"))
     print(f"[*] 능동 크롤: 엔드포인트 {len(inv)}개 식별 → {out_dir}/endpoints.csv")
 
