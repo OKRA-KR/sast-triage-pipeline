@@ -159,10 +159,37 @@ def _probe_point(fetch_with):
     return out
 
 
-def scan(base_url):
+def _write_endpoints(pages, forms, out_dir):
+    """크롤로 식별한 페이지/폼 → 엔드포인트 인벤토리 CSV (캡처와 동일 포맷)."""
+    if not out_dir:
+        return
+    from . import capture
+    ck = os.environ.get("SAST_HTTP_COOKIE")
+    base_h = {"cookie": ck} if ck else {}
+    exs = []
+    for u in pages:
+        exs.append(capture._mk("GET", u, dict(base_h), "", "", "", "", "", ""))
+    for f in forms:
+        action = urljoin(f["page"], f.get("action") or f["page"])
+        method = (f.get("method") or "get").upper()
+        fields = f.get("fields") or []
+        if method == "GET":
+            url = action + ("?" + "&".join(k + "=" for k in fields) if fields else "")
+            exs.append(capture._mk("GET", url, dict(base_h), "", "", "", "", "", ""))
+        else:
+            h = dict(base_h); h["content-type"] = "application/x-www-form-urlencoded"
+            body = "&".join(k + "=" for k in fields)
+            exs.append(capture._mk("POST", action, h, body, "", "", "", "", ""))
+    inv = capture.endpoints(exs)
+    capture.write_endpoints_csv(inv, os.path.join(out_dir, "endpoints.csv"))
+    print(f"[*] 능동 크롤: 엔드포인트 {len(inv)}개 식별 → {out_dir}/endpoints.csv")
+
+
+def scan(base_url, out_dir=None):
     base = base_url.rstrip("/")
     print(f"[*] 능동 DAST: {base} (인가 대상 전제 · 비파괴 payload)")
     pages, forms = _crawl(base)
+    _write_endpoints(pages, forms, out_dir)     # URL → 엔드포인트 식별부터
     findings = []
     seen_pt = set()
 

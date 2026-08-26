@@ -110,8 +110,8 @@ def cmd_scan(a):
         findings = blackbox.probe(findings, verify_url)     # 안전한 수동 recon
         layers.append("blackbox")
         if a.active or os.environ.get("SAST_ACTIVE"):       # 경량 능동 DAST (내장, 의존성 0)
-            print("[!] 능동 DAST 모드 — 인가된 대상에만! 실제 탐지 payload 를 전송합니다.")
-            findings = findings + active.scan(verify_url)
+            print("[!] 능동 DAST 모드 — 인가된 대상에만! 엔드포인트 식별 후 탐지 payload 를 전송합니다.")
+            findings = findings + active.scan(verify_url, out_dir=out)
             layers.append("active-dast")
         if a.okra or os.environ.get("SAST_OKRA") or os.environ.get("SAST_ZAP"):   # OKRA DAST(엔진 ZAP)
             print("[!] OKRA DAST — 인가된 대상에만! spider+active scan + 중요정보 스캔을 수행합니다.")
