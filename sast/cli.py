@@ -80,6 +80,13 @@ def cmd_scan(a):
 
     findings, engines, layers = [], [], []
     full = a.full or os.environ.get("SAST_FULL")
+    onelayer = getattr(a, "onelayer", False) or os.environ.get("SAST_1LAYER")
+    if onelayer:
+        os.environ["SAST_NO_LLM"] = "1"              # 1계층: LLM(2·3계층) 강제 OFF
+        print("[*] 1계층 모드 — 능동 DAST + 오프라인 트리아지, LLM 계층 OFF")
+    if full:
+        os.environ["SAST_ONLINE"] = "1"              # full: 2·3계층(LLM)까지
+    run_active = a.active or full or onelayer or os.environ.get("SAST_ACTIVE")
     oob_listener = None
     if a.oob or os.environ.get("SAST_OOB"):
         from . import oob as _oobmod
@@ -114,36 +121,30 @@ def cmd_scan(a):
         layers.append("passive")
         if not engines:
             engines = ["passive"]
-        # 캡처의 엔드포인트를 겨냥한 능동 점검(패킷 전송 → 인가 전용, 옵트인). --active=접근되는대로 · --full=세션강제
-        if a.active or full or os.environ.get("SAST_ACTIVE"):
+        # 캡처의 엔드포인트를 겨냥한 능동 점검(패킷 전송 → 인가 전용, 옵트인). 세션은 best-effort(접근되는대로)
+        if run_active:
             base = verify_url or (exs and f"{exs[0]['scheme']}://{exs[0]['host']}") or ""
             if base:
                 if not os.environ.get("SAST_HTTP_COOKIE"):
                     ck = capture.cookie_from(exs)
                     if ck:
                         os.environ["SAST_HTTP_COOKIE"] = ck; print("[*] 캡처 세션 쿠키 재사용")
-                print(f"[!] 능동 DAST(캡처 replay{' · --full 세션강제' if full else ''}) — 인가된 대상에만!")
-                res = _run_active(exs, findings, require_session=bool(full), oob=oob_listener)
-                if res is None:
-                    print("[!] 인증 계정/세션 확보 실패 → 전체 점검(--full) 종료. "
-                          "SAST_LOGIN_USER/PASS 또는 유효한 --cookie 필요."); return 4
-                findings = res; layers.append("replay")
+                print("[!] 능동 DAST(캡처 replay) — 인가된 대상에만!")
+                findings = _run_active(exs, findings, require_session=False, oob=oob_listener)
+                layers.append("replay")
 
     # ── Track B : 블랙박스 (라이브 URL) ─────────────────────────
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
         findings = blackbox.probe(findings, verify_url)     # 안전한 수동 recon
         layers.append("blackbox")
-        # 도메인만 줘도: 크롤로 엔드포인트 식별 → replay role 엔진(접근되는대로 XSS/SQLi/LFI, --full=세션강제)
-        if (a.active or full) and not cap and not os.environ.get("SAST_NO_VERIFY"):
-            print(f"[!] 능동 DAST(URL 크롤→replay{' · --full 세션강제' if full else ''}) — 인가된 대상에만!")
+        # 도메인만 줘도: 크롤로 엔드포인트 식별 → replay role 엔진(접근되는대로 전체 role)
+        if run_active and not cap:
+            print("[!] 능동 DAST(URL 크롤→replay) — 인가된 대상에만!")
             exs_url, npg, nfm = active.crawl_exchanges(verify_url)
             capture.write_endpoints_csv(capture.endpoints(exs_url), os.path.join(out, "endpoints.csv"))
             print(f"[*] 엔드포인트 식별: 페이지 {npg} · 폼 {nfm} → {out}/endpoints.csv")
-            res = _run_active(exs_url, findings, require_session=bool(full), oob=oob_listener)
-            if res is None:
-                print("[!] 인증 계정/세션 확보 실패 → 전체 점검(--full) 종료. "
-                      "SAST_LOGIN_USER/PASS 또는 유효한 --cookie 필요."); return 4
-            findings = res; layers += ["crawl", "replay"]
+            findings = _run_active(exs_url, findings, require_session=False, oob=oob_listener)
+            layers += ["crawl", "replay"]
         if a.okra or os.environ.get("SAST_OKRA") or os.environ.get("SAST_ZAP"):   # OKRA DAST(엔진 ZAP)
             print("[!] OKRA DAST — 인가된 대상에만! spider+active scan + 중요정보 스캔을 수행합니다.")
             findings = okra.scan(verify_url, findings, out_dir=out)
@@ -199,14 +200,17 @@ def main(argv=None):
                     help="패시브 분석: Burp items XML/HAR 캡처(오프라인, 패킷0) → 엔드포인트 CSV+취약점")
     sc.add_argument("--active", action="store_true", help="경량 능동 DAST(내장, 인가 전용)")
     sc.add_argument("--full", action="store_true",
-                    help="원스텝 전체 점검: 인증 세션 확보(못 찾으면 종료)→무인증+SQLi/XSS/IDOR(+브루트) 일괄")
+                    help="능동 DAST(전체 role) + 2·3계층(LLM 트리아지/심화)까지 — LLM 설정 시")
+    sc.add_argument("--1layer", dest="onelayer", action="store_true",
+                    help="1계층만: 능동 DAST(전체 role) + 오프라인 트리아지, LLM 계층 강제 OFF(폐쇄망)")
     sc.add_argument("--okra", "--zap", dest="okra", action="store_true",
                     help="OKRA DAST(ZAP 엔진 spider+ascan + 중요정보 스캔, 인가 전용)")
     sc.add_argument("--oob", action="store_true",
                     help="OOB 콜백 리스너(blind SSRF/XXE/RCE 확증, 인가 전용; SAST_OOB_HOST 로 콜백주소 지정)")
     sc.add_argument("--insecure", action="store_true", help="TLS 인증서 검증 끔(자기서명 폐쇄망 대상 전용)")
     sc.add_argument("--cookie", default=None, help="DAST 요청 쿠키(예: 'PHPSESSID=..')")
-    sc.add_argument("--header", action="append", default=[], metavar="'N: V'", help="DAST 커스텀 헤더(반복 가능)")
+    sc.add_argument("-H", "--header", action="append", default=[], metavar="'N: V'",
+                    help="DAST 커스텀 헤더(반복 가능): -H 'Authorization: Bearer ..' -H 'X-Api-Key: ..'")
     sc.set_defaults(func=cmd_scan)
     a = p.parse_args(argv)
     return a.func(a)

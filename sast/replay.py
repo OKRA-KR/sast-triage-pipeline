@@ -87,6 +87,8 @@ _REDIR = re.compile(r"(redirect|url|next|return|dest|target|goto|continue|back|o
 _META = re.compile(r"ami-id|instance-id|iam/|meta-data|placement/|security-credentials")
 _SSRF_PAYLOADS = ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:80/", "http://localhost/"]
 _XXE = ('<?xml version="1.0"?><!DOCTYPE r [<!ENTITY okx SYSTEM "file:///etc/passwd">]><r>&okx;</r>')
+_NOSQL_ERR = re.compile(r"MongoError|Mongoose|MongoDB|BSON|CastError|E11000|\$where|"
+                        r"unexpected token.*in JSON|couchdb|no such (function|operator)", re.I)
 
 _STORED_MARK = "okrStored9z"                 # 저장형 XSS 고유 마커
 _STORED_PAYLOAD = '"><' + _STORED_MARK + '>'  # 속성 탈출 + 태그(미이스케이프면 '<' 그대로 반사)
@@ -196,8 +198,9 @@ def scan_capture(exchanges, session=None, session_b=None, oob=None):
     ck_a = session.cookie if session else None
     mode = f" · 세션 A={session.label}" + (f", B={session_b.label} (IDOR 교차확증)" if session_b else "") if session else ""
     print(f"[*] replay 검증: 캡처 {len(exchanges)}건 · 호스트 {', '.join(sorted(base_hosts))} (인가 대상 전제·비파괴){mode}")
-    print("[*] role: 무인증접근 · SQLi · XSS(반사/저장형) · LFI · SSTI · 명령인젝션 · SSRF · XXE · "
-          "오픈리다이렉트 · CRLF · 인증부재/우회 · IDOR(단일/2계정)")
+    print("[*] role: 무인증접근 · SQLi · NoSQL · XSS(반사/저장형) · LFI · SSTI · 명령인젝션 · SSRF · XXE · "
+          "오픈리다이렉트 · CRLF · CORS · Host헤더 · 인증부재/우회 · IDOR(단일/2계정)"
+          + (" · OOB(blind)" if oob is not None else ""))
     eff_ck = (session.cookie if session else None) or os.environ.get("SAST_HTTP_COOKIE")
     src = "로그인 세션" if session else ("제공 쿠키" if eff_ck else "비인증")
     print(f"[*] 사용 세션: {src} · 지문 {_ck_fp(eff_ck)}"
@@ -243,6 +246,22 @@ def scan_capture(exchanges, session=None, session_b=None, oob=None):
                 tok = oob.new("xxe", ex, "(XML본문)")
                 _send(ex["method"], ex["url"], hdr,
                       f'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY okx SYSTEM "{oob.url(tok)}">]><r>&okx;</r>')
+
+        # ── CORS 오설정: 위조 Origin 반영 ──
+        hco = dict(hdr); hco["Origin"] = "https://evil.example"
+        rco = _send(ex["method"], ex["url"], hco, ex["req_body"] or None)
+        if rco:
+            acao = (rco[1].get("access-control-allow-origin", "") or "")
+            acac = (rco[1].get("access-control-allow-credentials", "") or "").lower()
+            if acao == "https://evil.example" or (acao == "*" and acac == "true"):
+                add(_f("cors-misconfig", "high", ex, "(Origin)", "Origin: https://evil.example",
+                       f"위조 Origin 반영(ACAO={acao}, creds={acac or 'n/a'}) — 크로스오리진 데이터 탈취", "true_positive"))
+        # ── Host 헤더 인젝션: 위조 Host 가 응답/리다이렉트에 반영 ──
+        hho = dict(hdr); hho["Host"] = "evil.example"; hho["X-Forwarded-Host"] = "evil.example"
+        rho = _send(ex["method"], ex["url"], hho, ex["req_body"] or None)
+        if rho and "evil.example" in (rho[2][:5000] + (rho[1].get("location", "") or "")):
+            add(_f("host-header-injection", "medium", ex, "(Host)", "Host: evil.example",
+                   "위조 Host 가 응답/Location 에 반영 — 비밀번호재설정 포이즈닝·캐시 포이즈닝 소지", "true_positive"))
 
         # ── 2계정 권한검증(IDOR): A 요청을 B 세션으로 재전송 → B 응답에 'A 고유 토큰'이 있어야 확정 ──
         # 길이 유사만으로는 세션결정형(/api/mypage 처럼 id 무시하고 자기 데이터 반환) 오탐이 남는다.
@@ -329,6 +348,19 @@ def scan_capture(exchanges, session=None, session_b=None, oob=None):
             rcr = _send(ex["method"], ucr, hdr, bcr)
             if rcr and any("okrcrlf" in str(k).lower() or "okrcrlf" in str(v).lower() for k, v in (rcr[1] or {}).items()):
                 add(_f("crlf-injection", "medium", ex, key, "\\r\\nokrcrlf:1", "응답 헤더 주입됨", "true_positive"))
+            # ── NoSQL 인젝션: 오류 기반 + JSON $ne 연산자 ──
+            for _np in ('"', "'", '{"$gt":""}', "[$ne]"):
+                un, bn = _mutate(ex, key, loc, _np)
+                rn = _send(ex["method"], un, hdr, bn)
+                if rn and _NOSQL_ERR.search(rn[2]) and not _NOSQL_ERR.search(base[2]):
+                    add(_f("nosql-injection", "critical", ex, key, _np, "NoSQL 오류 시그니처 반사", "true_positive")); break
+            if loc == "json":       # JSON 바디: 연산자 객체 주입($ne) → 인증우회성 응답차
+                un, bn = _mutate(ex, key, loc, {"$ne": None})
+                rn = _send(ex["method"], un, hdr, bn)
+                if rn and 200 <= rn[0] < 300 and abs(_resp_len(rn) - bl) > max(60, 0.1 * max(bl, 1)):
+                    f = _f("nosql-injection", "high", ex, key, '{"$ne":null}',
+                           f"$ne 연산자 주입 응답차(base {bl}·주입 {_resp_len(rn)}) — NoSQL 인젝션 후보", "needs_review")
+                    f["confidence"] = 0.5; add(f)
             # ── OOB(blind SSRF/RCE): 콜백 URL 주입(응답 아닌 역접속으로 확증) ──
             if oob is not None:
                 if _URLISH.search(key) or str(val).lower().startswith("http"):

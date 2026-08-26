@@ -35,8 +35,8 @@ for a in "$@"; do
   if [ -n "$prev" ]; then PASS+=("$a"); prev=""; continue; fi   # 값 받는 플래그의 값
   case "$a" in
     --deep) export SAST_DEEP=1 SAST_CODEQL_CACHE=1; echo "[*] deep: CodeQL(taint) 포함"; continue ;;
-    --verify|--capture|--cookie|--header|--name) PASS+=("$a"); prev="$a"; continue ;;
-    --*) PASS+=("$a"); continue ;;
+    -H|--verify|--capture|--cookie|--header|--name) PASS+=("$a"); prev="$a"; continue ;;
+    --*|-*) PASS+=("$a"); continue ;;
   esac
   # positional 대상 해석 (clone 만 여기서, 나머지 판별은 CLI 가 자동)
   if [ -d "$a" ]; then

@@ -25,16 +25,17 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ./okra gparking2                             # 캡처 패시브 → endpoints.csv + 취약점(패킷0)
 ./okra ./myapp https://app.com cap.har       # 소스+URL+캡처 동시 → 상관분석 자동
 ./okra ./myapp --online                      # 개방망: 2·3계층(LLM) 시도 (SAST_LLM_* 필요)
-#  능동 DAST(패킷 전송, 인가 대상 전용) — 명시 옵트인:
-#   --active = '접근되는 대로' 테스트(세션 없어도 진행) · --full = 인증 세션 확보 강제(못 찾으면 종료)
-./okra https://app.example.com --active                           # 도메인만: 크롤→replay(무인증 스윕+SQLi/XSS/LFI/IDOR)
-./okra https://app.example.com --active --cookie 'PHPSESSID=..'   # + 세션 있으면 인증 상태로도 테스트
-./okra https://app.example.com --full   --cookie 'PHPSESSID=..'   # 원스텝 전체(세션 강제: 없으면 종료)
-./okra https://app.example.com --okra   --cookie 'PHPSESSID=..'   # OKRA DAST(엔진 OWASP ZAP)
-./okra gparking2 --active --cookie 'PHPSESSID=..'                  # 캡처 replay(실요청 기반, 더 정밀)
-./okra gparking2 --full   --cookie 'PHPSESSID=..'                  # 캡처로 원스텝 전체
-#  OOB(blind SSRF/XXE/RCE) — 대상이 내 PC로 역접속 가능해야 확증. 콜백주소는 자동감지 or 지정:
-SAST_OOB_HOST='<내PC_IP:포트>' ./okra gparking2 --active --oob --cookie 'PHPSESSID=..'
+#  능동 DAST(패킷 전송, 인가 대상 전용). role: 무인증·SQLi·NoSQL·XSS(반사/저장형)·LFI·SSTI·
+#  명령인젝션·SSRF·XXE·오픈리다이렉트·CRLF·CORS·Host헤더·인증부재/우회·IDOR(단일/2계정)
+./okra <도메인> --1layer                          # 1계층: 능동 DAST + 오프라인 트리아지(LLM OFF, 폐쇄망)
+./okra <도메인> --1layer -H 'Authorization: Bearer ..' -H 'X-Api-Key: ..'   # 커스텀 헤더(반복)
+./okra <도메인> --full                            # + 2·3계층(LLM 트리아지/심화)까지 (LLM 설정 시)
+./okra <도메인> --full   --cookie 'SESSION=..'    # 세션 얹어 인증 상태로
+./okra <캡처>   --1layer                          # 캡처 replay(실요청 기반, 더 정밀)
+./okra <도메인> --okra   --cookie 'PHPSESSID=..'  # OKRA DAST(엔진 OWASP ZAP)
+#  OOB(blind SSRF/XXE/RCE) — 대상이 내 PC로 역접속 가능해야 확증(콜백주소 자동감지 or 지정):
+SAST_OOB_HOST='<내PC_IP:포트>' ./okra <도메인> --1layer --oob --cookie '..'
+#  세션: 자격증명(SAST_LOGIN_USER/PASS 또는 캡처서 자동추출)이 있으면 로그인, 없으면 접근되는 대로.
 #   대상 형태: 폴더 | http(s)URL | Burp/HAR 파일 | gitURL(.git) | owner/repo | targets/폴더명
 #   기본=오프라인·비파괴. 명시 플래그(--verify/--capture)로 강제 지정도 가능(하위호환).
 ```
@@ -190,7 +191,7 @@ sast/                     코어 (stdlib 전용, 오프라인)
   okra.py                 Track B OKRA DAST: OWASP ZAP(Apache-2.0) 구동+alert 정규화 + 응답 본문 중요정보 스캔 (--okra)
   capture.py              Track C 패시브 분석: Burp/HAR 파싱→엔드포인트 인벤토리(CSV)+오프라인 룰 (--capture, 패킷0)
   correlate.py            SAST↔캡처 상관(P2, IAST-lite): 정적 발견을 실트래픽으로 도달확인/증상확증 (패킷0)
-  replay.py               캡처 기반 능동 검증(role): 무인증스윕·SQLi·XSS(반사/저장형)·LFI·SSTI·명령인젝션·SSRF·XXE·오픈리다이렉트·CRLF·인증부재/우회·IDOR(단일/2계정)
+  replay.py               캡처/URL 능동 검증(role): 무인증·SQLi·NoSQL·XSS(반사/저장형)·LFI·SSTI·명령인젝션·SSRF·XXE·오픈리다이렉트·CRLF·CORS·Host헤더·인증부재/우회·IDOR(단일/2계정)
   oob.py                  OOB 콜백 리스너(stdlib): blind SSRF/XXE/RCE 를 역접속으로 확증 (--oob)
   login.py                인증: 캡처서 자격증명 자동추출·CSRF 토큰·JSON/Bearer 로그인·2계정·브루트(사이트 무관)
   login.py                인증 세션(ID/PW→로그인·재로그인·2계정 IDOR) + 로그인 브루트포스(옵트인, 약한자격증명/락아웃 부재)

@@ -27,7 +27,8 @@ GROUP_MAP = {
     "hardcoded-secret": "sensitive-exposure", "sensitive-data": "sensitive-exposure",
     "info-disclosure": "info-disclosure", "ci-hardening": "info-disclosure",
     "iac-misconfig": "misconfiguration", "insecure-cookie": "misconfiguration",
-    "security-misconfig": "misconfiguration",
+    "security-misconfig": "misconfiguration", "cors-misconfig": "misconfiguration",
+    "host-header-injection": "misconfiguration",
     "supply-chain": "vulnerable-component",
 }
 
