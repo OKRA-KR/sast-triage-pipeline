@@ -104,6 +104,17 @@ def cmd_scan(a):
                 else:
                     findings = findings + replay.scan_capture(exs, sess_a, sess_b)   # SQLi/XSS/IDOR
                     layers.append("replay")
+                # 로그인 무차별 대입(옵트인·대상계정 지정 필수) — 인가 전용
+                if os.environ.get("SAST_BRUTE"):
+                    buser = os.environ.get("SAST_BRUTE_USER")
+                    if not buser:
+                        print("[!] SAST_BRUTE=1 이나 SAST_BRUTE_USER(대상 계정) 미지정 — 본인/테스트 계정만. 스킵")
+                    else:
+                        wl = os.environ.get("SAST_BRUTE_WORDLIST")
+                        words = ([w.strip() for w in open(wl, encoding="utf-8", errors="ignore") if w.strip()]
+                                 if wl and os.path.isfile(wl) else None)
+                        findings = findings + login.brute_force(exs, buser, words)
+                        layers.append("brute")
 
     # ── Track B : 블랙박스 (라이브 URL) ─────────────────────────
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):

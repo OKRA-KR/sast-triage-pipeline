@@ -168,7 +168,7 @@ def scan_capture(exchanges, session=None, session_b=None):
     ck_a = session.cookie if session else None
     mode = f" · 세션 A={session.label}" + (f", B={session_b.label} (IDOR 교차확증)" if session_b else "") if session else ""
     print(f"[*] replay 검증: 캡처 {len(exchanges)}건 · 호스트 {', '.join(sorted(base_hosts))} (인가 대상 전제·비파괴){mode}")
-    print("[*] role: SQLi(오류/불리언) · XSS(반사/저장형) · 인증부재/우회 · IDOR(단일/2계정)")
+    print("[*] role: 무인증접근 · SQLi(오류/불리언) · XSS(반사/저장형) · 인증부재/우회 · IDOR(단일/2계정)")
     seen, reps = set(), []
     for ex in exchanges:
         sig = (ex["method"], ex["path"], tuple(sorted(k for k, _, _ in _params(ex))))
@@ -183,6 +183,9 @@ def scan_capture(exchanges, session=None, session_b=None):
         if k not in seen_f:
             seen_f.add(k); findings.append(f)
 
+    # ── 패스 0: 무인증 접근 스윕 (id/pw 없이 뭐가 열리는지부터) ──
+    _unauth_sweep(reps, add)
+
     for ex in reps:
         hdr = _headers_for(ex, ck_a)
         base = _send(ex["method"], ex["url"], hdr, ex["req_body"] or None)
@@ -194,19 +197,6 @@ def scan_capture(exchanges, session=None, session_b=None):
         if not base:
             continue
         bl = _resp_len(base)
-
-        # ── 인증 부재/우회: 캡처에서 인증됐던 요청을 '세션 제거' 후 재전송 → 여전히 처리되면 Critical ──
-        # (요청은 캡처 원본 그대로 = 비파괴. 읽기는 데이터노출, 쓰기는 동일값 재기록)
-        if _had_auth(ex) and not _blocked(base) and bl > 20:
-            rna = _send(ex["method"], ex["url"], _no_auth_headers(ex), ex["req_body"] or None)
-            if rna and not _blocked(rna) and 200 <= rna[0] < 300 and abs(_resp_len(rna) - bl) < max(120, 0.25 * bl):
-                f = _f("missing-auth", "critical", ex, "(세션제거)", "쿠키/인증 제거 재전송",
-                       f"인증 없이 요청 처리됨(무세션 {rna[0]}, len {_resp_len(rna)}≈{bl}) — 인증 부재/우회(CWE-306)",
-                       "true_positive")
-                f["confidence"] = 0.9
-                f["rationale"] = ("캡처에서 인증(쿠키) 상태였던 요청을 세션/인증 헤더 제거 후 재전송했을 때 차단 없이 "
-                                  "동일 결과 반환 → 인증 미강제. 상태변경 엔드포인트면 비인증 조작·계정탈취로 연결.")
-                add(f)
 
         # ── 2계정 권한검증(IDOR): A 요청을 B 세션으로 재전송 → B 응답에 'A 고유 토큰'이 있어야 확정 ──
         # 길이 유사만으로는 세션결정형(/api/mypage 처럼 id 무시하고 자기 데이터 반환) 오탐이 남는다.
@@ -281,6 +271,28 @@ def scan_capture(exchanges, session=None, session_b=None):
 
     print(f"[*] replay 검증: 요청 {_req[0]}건 · 확증/후보 {len(findings)}건")
     return findings
+
+
+def _unauth_sweep(reps, add):
+    """무인증 접근 점검 — 캡처에서 인증(쿠키)됐던 요청을 세션/인증 헤더 제거 후 재전송.
+    차단 없이 데이터/성공 반환하면 인증·권한 부재(Missing Auth / Broken Access Control)."""
+    authed = [ex for ex in reps if _had_auth(ex)]
+    if not authed:
+        return
+    hit = 0
+    for ex in authed:
+        r = _send(ex["method"], ex["url"], _no_auth_headers(ex), ex["req_body"] or None)
+        if r and not _blocked(r) and 200 <= r[0] < 300 and _resp_len(r) > 50:
+            hit += 1
+            f = _f("missing-auth", "critical", ex, "(무인증)", "세션/인증 제거 재전송",
+                   f"인증 없이 {ex['method']} {ex['path']} 처리됨({r[0]}, len {_resp_len(r)}) — 인증/권한 부재(CWE-306)",
+                   "true_positive")
+            f["confidence"] = 0.85
+            f["rationale"] = ("캡처에서 인증(쿠키)이 있던 요청을 세션/인증 헤더 제거 후 재전송했을 때 차단 없이 "
+                              "데이터/성공 반환 → 서버가 인증을 강제하지 않음. 상태변경이면 비인증 조작·계정탈취로 연결.")
+            add(f)
+    print(f"[*] 무인증 접근 점검: 인증대상 {len(authed)}개 중 {hit}개 무인증 접근 가능"
+          + (" ⚠" if hit else ""))
 
 
 def _stored_xss(reps, ck_a, add):

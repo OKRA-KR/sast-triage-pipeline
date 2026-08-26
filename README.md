@@ -109,6 +109,18 @@ export SAST_LOGIN_USER='glnt'   SAST_LOGIN_PASS='****'          # 계정 A(필�
 export SAST_LOGIN_USER2='corpB' SAST_LOGIN_PASS2='****'         # 계정 B(선택 → IDOR 확정)
 bash sast-run.sh --capture <burp.xml> --active
 ```
+
+**무인증 접근 스윕**: replay 는 항상 **첫 패스로 무인증 접근**을 점검한다 — 캡처에서 인증(쿠키)이 있던
+요청을 세션 제거 후 재전송해, 차단 없이 데이터/성공이면 인증·권한 부재(CWE-306, Critical)로 잡는다.
+
+**로그인 브루트포스(옵트인·인가 전용)**: 약한 자격증명 + 무차별대입 방어(락아웃/레이트리밋) 부재 점검.
+```bash
+# ⚠ 계정 잠금·실계정 영향 위험 → 본인/테스트 계정에만. 락아웃 감지 시 자동 중단.
+export SAST_BRUTE=1  SAST_BRUTE_USER='<대상계정>'               # 둘 다 있어야 실행(대상계정 필수)
+export SAST_BRUTE_WORDLIST=/path/words.txt                      # 선택(없으면 내장 약한비번 사전)
+export SAST_BRUTE_MAX=25                                        # 시도 상한(기본 25)
+bash sast-run.sh --capture <burp.xml> --active
+```
 - **폐쇄망**: 기본값이 offline 이라 2·3계층이 실행조차 안 됨 → 1계층(+선택 블랙박스)만.
 - **개방망**: `--online` + LLM 키가 있어야 2·3계층이 돈다. 하나라도 없으면 자동 건너뜀(안전).
 - 블랙박스는 LLM 불필요 — 소스가 없거나(Track B) SAST 와 병행해 라이브 확증에 쓴다(GET 전용, 시그니처로 오탐 억제).
@@ -172,8 +184,8 @@ sast/                     코어 (stdlib 전용, 오프라인)
   okra.py                 Track B OKRA DAST: OWASP ZAP(Apache-2.0) 구동+alert 정규화 + 응답 본문 중요정보 스캔 (--okra)
   capture.py              Track C 패시브 분석: Burp/HAR 파싱→엔드포인트 인벤토리(CSV)+오프라인 룰 (--capture, 패킷0)
   correlate.py            SAST↔캡처 상관(P2, IAST-lite): 정적 발견을 실트래픽으로 도달확인/증상확증 (패킷0)
-  replay.py               캡처 기반 능동 검증(role): SQLi(오류/불리언)·XSS(반사/저장형)·인증부재/우회·IDOR(단일/2계정) (--capture --active)
-  login.py                인증 세션: ID/PW(env)로 직접 로그인→싱싱 세션·만료 재로그인, 2계정 IDOR 교차확증. 로그인 요청은 캡처서 추론
+  replay.py               캡처 기반 능동 검증(role): 무인증접근 스윕 → SQLi(오류/불리언)·XSS(반사/저장형)·인증부재/우회·IDOR(단일/2계정) (--capture --active)
+  login.py                인증 세션(ID/PW→로그인·재로그인·2계정 IDOR) + 로그인 브루트포스(옵트인, 약한자격증명/락아웃 부재)
   report.py               results.json(sast-results/2) + 대시보드 생성
   cli.py                  python3 -m sast scan <target> --out <dir> [--online] [--verify URL]
 dashboard.template.html   넓은(1400px) 자체완결 뷰어

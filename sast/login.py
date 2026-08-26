@@ -13,6 +13,7 @@ PW 는 로그에 마스킹. 인가 대상 전용.
 import os, re, ssl, urllib.request, urllib.error
 from urllib.parse import urlparse, parse_qsl, urlencode
 from .capture import _AUTHFAIL, _body_params
+from .schema import new_finding
 from . import env
 
 _USER_KEYS = re.compile(r"^(user_?id|userid|user_?nm|username|login_?id|mb_id|account|userno|memid|email|id|user)$", re.I)
@@ -207,6 +208,103 @@ class Session:
     def reauth(self):
         self.cookie = authenticate(self.template, self.user, self.pw, self.cookie, self.verify_ex)
         return self.cookie
+
+
+# ── 로그인 무차별 대입(브루트포스) — 옵트인·인가 대상 전용 ──────────────
+WEAK_PW = ["1234", "12345", "123456", "1111", "0000", "admin", "password", "passwd",
+           "test", "qwerty", "1q2w3e", "p@ssw0rd", "asdf", "12341234", "a1234567",
+           "<user>", "<user>123", "<user>1234"]
+_SUCCESS = re.compile(r"success|\"result\"\s*:\s*(?:true|1|\"?success)|로그인\s*성공", re.I)
+# 락아웃/레이트리밋 신호 (정상 '비밀번호 틀림'과 구분 — _blocked 의 로그인문구와 혼동 금지)
+_LOCKOUT = re.compile(r"too\s*many|locked|lockout|rate.?limit|잠(?:금|겼|김)|차단|일시(?:적|정지)|"
+                      r"시도.*제한|제한.*시도|blocked", re.I)
+
+
+def _login_ok(rb, rh):
+    if _AUTHFAIL.search(rb):
+        return False
+    return bool(_SUCCESS.search(rb) or _cookie_from(rh))
+
+
+def _attempt(template, user, pw):
+    """로그인 1회 시도 → 'success' | 'fail' | 'blocked' | None(오류)."""
+    ex = template["ex"]
+    pr = urlparse(ex["url"])
+    ct = (ex["req_headers"].get("content-type") or "").lower()
+    hdr = {k: v for k, v in ex["req_headers"].items() if k not in _DROP}
+
+    def sub(pairs):
+        d = dict(pairs); d[template["user_key"]] = user; d[template["pw_key"]] = pw
+        return urlencode(d)
+    if ex["method"] == "POST" and "application/json" in ct:
+        import json as _j
+        try:
+            obj = _j.loads(ex["req_body"] or "{}")
+        except Exception:
+            obj = {}
+        obj[template["user_key"]] = user; obj[template["pw_key"]] = pw
+        url, body = ex["url"], _j.dumps(obj)
+    elif ex["method"] == "POST":
+        url, body = ex["url"], sub(parse_qsl(ex["req_body"] or "", keep_blank_values=True))
+    else:
+        url, body = pr._replace(query=sub(parse_qsl(pr.query, keep_blank_values=True))).geturl(), None
+    r = _send_raw(ex["method"], url, hdr, body)
+    if not r:
+        return None
+    if r[0] in (429, 403) or _LOCKOUT.search(r[2][:800]):   # 락아웃/레이트리밋(정상 실패와 구분)
+        return "blocked"
+    return "success" if _login_ok(r[2], r[1]) else "fail"
+
+
+def brute_force(exchanges, user, words=None, cap=None):
+    """인가 대상 전용 로그인 무차별 대입. 약한 자격증명·락아웃 부재 탐지 → findings 반환.
+
+    ⚠ 계정 잠금(lockout)·실계정 영향 위험 → 본인/테스트 계정에만. 성공 시 즉시 중단.
+    """
+    tmpl = derive_login(exchanges)
+    if not tmpl:
+        print("[!] 브루트포스: 로그인 요청 추론 실패 — 캡처에 로그인 트래픽 필요"); return []
+    cap = cap or int(os.environ.get("SAST_BRUTE_MAX", "25"))
+    words = [w.replace("<user>", user) for w in (words or WEAK_PW)][:cap]
+    print(f"[!] 로그인 브루트포스(인가 전용) — user={_mask(user)} · 사전 {len(words)}개")
+    print("    ⚠ 계정 잠금 위험 — 본인/테스트 계정만. 락아웃 감지 시 자동 중단.")
+    tried = 0; found = None; lockout = False
+    for pw in words:
+        tried += 1
+        st = _attempt(tmpl, user, pw)
+        if st == "blocked":
+            lockout = True; break
+        if st == "success":
+            found = pw; break
+    ex = tmpl["ex"]
+    loc = f"{ex['method']} {ex['path']}"
+    findings = []
+    if found:
+        findings.append(new_finding(
+            fingerprint="brute-weakcred-" + user, engines=["brute"], rule="weak-credential",
+            full_rule="brute:weak-credential", pack="brute", category="broken-auth",
+            severity="high", sev_lock=True, source="DAST", verdict="true_positive", confidence=0.95,
+            file=ex["url"].split("?")[0], line=0,
+            message=f"[brute] 약한 자격증명 — user '{_mask(user)}' 사전공격 성공({loc})",
+            evidence=f"{tried}회 내 성공 · pw={_redact(found)}",
+            dynamic={"status": "confirmed", "evidence": f"사전 {tried}회 내 로그인 성공"},
+            rationale="사전(약한 비밀번호) 무차별 대입으로 로그인 성공 → 약한 자격증명 + 무차별대입 방어 미흡."))
+    elif not lockout and tried >= 10:
+        findings.append(new_finding(
+            fingerprint="brute-nolockout-" + ex["path"], engines=["brute"], rule="no-account-lockout",
+            full_rule="brute:no-account-lockout", pack="brute", category="missing-anti-automation",
+            severity="medium", sev_lock=True, source="DAST", verdict="needs_review", confidence=0.7,
+            file=ex["url"].split("?")[0], line=0,
+            message=f"[brute] 로그인 무차별 대입 방어 부재 — {tried}회 시도에도 잠금/차단 없음({loc})",
+            evidence=f"{tried}회 연속 로그인 시도 허용(락아웃/레이트리밋 미발생)",
+            rationale="연속 로그인 실패에도 계정 잠금·레이트리밋이 없어 무차별 대입·크리덴셜 스터핑에 노출."))
+    if lockout:
+        print(f"[*] 브루트포스: {tried}회에서 차단(락아웃/레이트리밋 감지) — 방어 동작")
+    return findings
+
+
+def _redact(s):
+    return (s[0] + "*" * (len(s) - 1)) if s else ""
 
 
 def build_sessions(exchanges):
