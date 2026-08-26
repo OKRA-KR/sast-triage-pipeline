@@ -88,33 +88,50 @@ def cmd_scan(a):
         if not engines:
             engines = ["passive"]
         # 캡처의 엔드포인트를 그대로 겨냥한 정밀 능동 점검(패킷 전송 → 인가 전용, 옵트인)
-        if a.active or os.environ.get("SAST_ACTIVE"):
+        full = a.full or os.environ.get("SAST_FULL")
+        if a.active or full or os.environ.get("SAST_ACTIVE"):
             base = verify_url or (exs and f"{exs[0]['scheme']}://{exs[0]['host']}") or ""
             if base:
                 if not os.environ.get("SAST_HTTP_COOKIE"):
                     ck = capture.cookie_from(exs)
                     if ck:
                         os.environ["SAST_HTTP_COOKIE"] = ck; print("[*] 캡처 세션 쿠키 재사용")
-                print("[!] 능동 DAST(캡처 replay) — 인가된 대상에만! 실제 요청을 재전송하며 표적 검증합니다.")
-                sess_a, sess_b = login.build_sessions(exs)         # ID/PW(env) 있으면 직접 로그인→싱싱 세션
-                creds_given = bool(os.environ.get("SAST_LOGIN_USER") and os.environ.get("SAST_LOGIN_PASS"))
-                if creds_given and not sess_a and not os.environ.get("SAST_LOGIN_ALLOW_UNAUTH"):
-                    print("[!] 로그인 검증 실패 → replay 생략(비인증 스캔 방지). "
-                          "비인증으로라도 진행하려면 SAST_LOGIN_ALLOW_UNAUTH=1")
-                else:
-                    findings = findings + replay.scan_capture(exs, sess_a, sess_b)   # SQLi/XSS/IDOR
+                if full:
+                    # ── 원스텝 전체 점검: 인증 세션 확보 강제(못 찾으면 종료) → 무인증+SQLi/XSS/IDOR+브루트 ──
+                    print("[!] 전체 점검(--full) — 인가된 대상에만! 인증 세션 확보 후 1계층 능동 role 일괄 수행.")
+                    ok, sess_a, sess_b = login.working_session(exs)
+                    if not ok:
+                        print("[!] 인증 계정/세션을 확보하지 못했습니다 → 전체 점검 종료. "
+                              "SAST_LOGIN_USER/PASS 또는 유효한 --cookie 를 주세요."); return 4
+                    findings = findings + replay.scan_capture(exs, sess_a, sess_b)
                     layers.append("replay")
-                # 로그인 무차별 대입(옵트인·대상계정 지정 필수) — 인가 전용
-                if os.environ.get("SAST_BRUTE"):
                     buser = os.environ.get("SAST_BRUTE_USER")
-                    if not buser:
-                        print("[!] SAST_BRUTE=1 이나 SAST_BRUTE_USER(대상 계정) 미지정 — 본인/테스트 계정만. 스킵")
-                    else:
+                    if buser:      # full 이라도 브루트는 대상계정 지정 시에만(락아웃 위험)
                         wl = os.environ.get("SAST_BRUTE_WORDLIST")
                         words = ([w.strip() for w in open(wl, encoding="utf-8", errors="ignore") if w.strip()]
                                  if wl and os.path.isfile(wl) else None)
-                        findings = findings + login.brute_force(exs, buser, words)
-                        layers.append("brute")
+                        findings = findings + login.brute_force(exs, buser, words); layers.append("brute")
+                    else:
+                        print("[*] 브루트포스는 SAST_BRUTE_USER(대상 계정) 지정 시에만 수행 — 건너뜀")
+                else:
+                    print("[!] 능동 DAST(캡처 replay) — 인가된 대상에만! 실제 요청을 재전송하며 표적 검증합니다.")
+                    sess_a, sess_b = login.build_sessions(exs)     # ID/PW(env) 있으면 직접 로그인→싱싱 세션
+                    creds_given = bool(os.environ.get("SAST_LOGIN_USER") and os.environ.get("SAST_LOGIN_PASS"))
+                    if creds_given and not sess_a and not os.environ.get("SAST_LOGIN_ALLOW_UNAUTH"):
+                        print("[!] 로그인 검증 실패 → replay 생략(비인증 스캔 방지). "
+                              "비인증으로라도 진행하려면 SAST_LOGIN_ALLOW_UNAUTH=1")
+                    else:
+                        findings = findings + replay.scan_capture(exs, sess_a, sess_b)   # SQLi/XSS/IDOR
+                        layers.append("replay")
+                    if os.environ.get("SAST_BRUTE"):               # 개별 옵트인 브루트
+                        buser = os.environ.get("SAST_BRUTE_USER")
+                        if not buser:
+                            print("[!] SAST_BRUTE=1 이나 SAST_BRUTE_USER(대상 계정) 미지정 — 본인/테스트 계정만. 스킵")
+                        else:
+                            wl = os.environ.get("SAST_BRUTE_WORDLIST")
+                            words = ([w.strip() for w in open(wl, encoding="utf-8", errors="ignore") if w.strip()]
+                                     if wl and os.path.isfile(wl) else None)
+                            findings = findings + login.brute_force(exs, buser, words); layers.append("brute")
 
     # ── Track B : 블랙박스 (라이브 URL) ─────────────────────────
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
@@ -176,6 +193,8 @@ def main(argv=None):
     sc.add_argument("--capture", default=None, metavar="FILE",
                     help="패시브 분석: Burp items XML/HAR 캡처(오프라인, 패킷0) → 엔드포인트 CSV+취약점")
     sc.add_argument("--active", action="store_true", help="경량 능동 DAST(내장, 인가 전용)")
+    sc.add_argument("--full", action="store_true",
+                    help="원스텝 전체 점검: 인증 세션 확보(못 찾으면 종료)→무인증+SQLi/XSS/IDOR(+브루트) 일괄")
     sc.add_argument("--okra", "--zap", dest="okra", action="store_true",
                     help="OKRA DAST(ZAP 엔진 spider+ascan + 중요정보 스캔, 인가 전용)")
     sc.add_argument("--insecure", action="store_true", help="TLS 인증서 검증 끔(자기서명 폐쇄망 대상 전용)")

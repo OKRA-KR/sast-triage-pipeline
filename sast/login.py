@@ -307,6 +307,33 @@ def _redact(s):
     return (s[0] + "*" * (len(s) - 1)) if s else ""
 
 
+def working_session(exchanges):
+    """전체 점검(--full)용 — '작동하는 인증 세션'을 확보한다. → (ok, sess_a, sess_b).
+
+    우선순위: 로그인 자격증명(SAST_LOGIN_USER/PASS) > 유효 쿠키(--cookie/캡처).
+    - 자격증명: build_sessions 로 로그인 검증. 실패면 ok=False.
+    - 쿠키만: 캡처의 인증 엔드포인트로 프로브해 차단이면 ok=False(만료/무효). 검증불가면 통과.
+    - 둘 다 없음: ok=False (계정 없음 → 호출측이 종료).
+    """
+    u1, p1 = os.environ.get("SAST_LOGIN_USER"), os.environ.get("SAST_LOGIN_PASS")
+    if u1 and p1:
+        a, b = build_sessions(exchanges)
+        return (a is not None), a, b
+    ck = os.environ.get("SAST_HTTP_COOKIE")
+    if ck:
+        vx = pick_verify_ex(exchanges)
+        if vx is None:
+            print("[*] 쿠키 유효성 검증용 인증 엔드포인트 없음 — 제공된 쿠키로 진행")
+            return True, None, None
+        r = _send_raw(vx["method"], vx["url"], vx["req_headers"], None, ck)
+        if _blocked(r):
+            print("[!] 제공된 세션 쿠키가 무효/만료 — 인증 엔드포인트 접근 차단됨")
+            return False, None, None
+        print("[*] 세션 쿠키 유효 확인")
+        return True, None, None
+    return False, None, None
+
+
 def build_sessions(exchanges):
     """환경변수 자격증명 → (주 세션 A, 보조 세션 B). 캡처에서 로그인 추론.
 

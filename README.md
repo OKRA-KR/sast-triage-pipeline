@@ -29,6 +29,7 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ./okra https://app.example.com --active --cookie 'PHPSESSID=..'   # 경량 능동
 ./okra https://app.example.com --okra  --cookie 'PHPSESSID=..'    # OKRA DAST(엔진 OWASP ZAP)
 ./okra gparking2 --active --cookie 'PHPSESSID=..'                  # 캡처 replay(실요청 재전송)
+./okra gparking2 --full  --cookie 'PHPSESSID=..'                   # 원스텝 전체: 인증세션 확보(못찾으면 종료)→무인증+SQLi/XSS/IDOR(+브루트)
 #   대상 형태: 폴더 | http(s)URL | Burp/HAR 파일 | gitURL(.git) | owner/repo | targets/폴더명
 #   기본=오프라인·비파괴. 명시 플래그(--verify/--capture)로 강제 지정도 가능(하위호환).
 ```
