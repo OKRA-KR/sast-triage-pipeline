@@ -27,7 +27,7 @@ def _classify(a):
     return repo, verify, cap
 
 
-def _run_active(exs, findings, require_session):
+def _run_active(exs, findings, require_session, oob=None):
     """능동 role 엔진(캡처/URL 공용). require_session(--full)=인증 세션 확보 실패 시 None(종료).
     아니면(--active) 세션이 있으면 인증 상태로, 없으면 '접근되는 대로' 비인증으로 테스트한다."""
     if require_session:
@@ -38,7 +38,7 @@ def _run_active(exs, findings, require_session):
         sess_a, sess_b = login.build_sessions(exs)     # 자격증명 있으면 로그인, 없으면 (None,None)
         if not sess_a and (os.environ.get("SAST_LOGIN_USER") and os.environ.get("SAST_LOGIN_PASS")):
             print("[!] 로그인 실패 — 접근 가능한 범위만 비인증으로 테스트합니다(SAST_HTTP_COOKIE 있으면 그걸 사용).")
-    findings = findings + replay.scan_capture(exs, sess_a, sess_b)   # 무인증 스윕+SQLi/XSS/LFI/IDOR
+    findings = findings + replay.scan_capture(exs, sess_a, sess_b, oob=oob)   # 무인증 스윕+SQLi/XSS/LFI/IDOR(+OOB)
     buser = os.environ.get("SAST_BRUTE_USER")
     if buser:
         wl = os.environ.get("SAST_BRUTE_WORDLIST")
@@ -80,6 +80,11 @@ def cmd_scan(a):
 
     findings, engines, layers = [], [], []
     full = a.full or os.environ.get("SAST_FULL")
+    oob_listener = None
+    if a.oob or os.environ.get("SAST_OOB"):
+        from . import oob as _oobmod
+        oob_listener = _oobmod.OOBListener()
+        print("[!] OOB 모드 — blind SSRF/XXE/RCE 확증. 대상이 콜백주소로 역접속 가능해야 함(인가 전용).")
 
     # ── Track A : SAST (Repo 있음) ──────────────────────────────
     if have_repo:
@@ -118,7 +123,7 @@ def cmd_scan(a):
                     if ck:
                         os.environ["SAST_HTTP_COOKIE"] = ck; print("[*] 캡처 세션 쿠키 재사용")
                 print(f"[!] 능동 DAST(캡처 replay{' · --full 세션강제' if full else ''}) — 인가된 대상에만!")
-                res = _run_active(exs, findings, require_session=bool(full))
+                res = _run_active(exs, findings, require_session=bool(full), oob=oob_listener)
                 if res is None:
                     print("[!] 인증 계정/세션 확보 실패 → 전체 점검(--full) 종료. "
                           "SAST_LOGIN_USER/PASS 또는 유효한 --cookie 필요."); return 4
@@ -134,7 +139,7 @@ def cmd_scan(a):
             exs_url, npg, nfm = active.crawl_exchanges(verify_url)
             capture.write_endpoints_csv(capture.endpoints(exs_url), os.path.join(out, "endpoints.csv"))
             print(f"[*] 엔드포인트 식별: 페이지 {npg} · 폼 {nfm} → {out}/endpoints.csv")
-            res = _run_active(exs_url, findings, require_session=bool(full))
+            res = _run_active(exs_url, findings, require_session=bool(full), oob=oob_listener)
             if res is None:
                 print("[!] 인증 계정/세션 확보 실패 → 전체 점검(--full) 종료. "
                       "SAST_LOGIN_USER/PASS 또는 유효한 --cookie 필요."); return 4
@@ -165,6 +170,8 @@ def cmd_scan(a):
     elif findings:
         print("[*] 2·3계층(LLM) OFF — LLM 미설정(SAST_LLM_ENDPOINT/SAST_LLM_KEY). 1계층 결과로 완결.")
 
+    if oob_listener is not None:
+        oob_listener.stop()
     src = target if have_repo else (verify_url or cap or "")
     truncated = replay.truncated[0] or active.truncated[0]
     res = report.build(name, src, engines or ["blackbox"], findings, out,
@@ -195,6 +202,8 @@ def main(argv=None):
                     help="원스텝 전체 점검: 인증 세션 확보(못 찾으면 종료)→무인증+SQLi/XSS/IDOR(+브루트) 일괄")
     sc.add_argument("--okra", "--zap", dest="okra", action="store_true",
                     help="OKRA DAST(ZAP 엔진 spider+ascan + 중요정보 스캔, 인가 전용)")
+    sc.add_argument("--oob", action="store_true",
+                    help="OOB 콜백 리스너(blind SSRF/XXE/RCE 확증, 인가 전용; SAST_OOB_HOST 로 콜백주소 지정)")
     sc.add_argument("--insecure", action="store_true", help="TLS 인증서 검증 끔(자기서명 폐쇄망 대상 전용)")
     sc.add_argument("--cookie", default=None, help="DAST 요청 쿠키(예: 'PHPSESSID=..')")
     sc.add_argument("--header", action="append", default=[], metavar="'N: V'", help="DAST 커스텀 헤더(반복 가능)")

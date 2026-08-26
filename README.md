@@ -33,6 +33,8 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ./okra https://app.example.com --okra   --cookie 'PHPSESSID=..'   # OKRA DAST(엔진 OWASP ZAP)
 ./okra gparking2 --active --cookie 'PHPSESSID=..'                  # 캡처 replay(실요청 기반, 더 정밀)
 ./okra gparking2 --full   --cookie 'PHPSESSID=..'                  # 캡처로 원스텝 전체
+#  OOB(blind SSRF/XXE/RCE) — 대상이 내 PC로 역접속 가능해야 확증. 콜백주소는 자동감지 or 지정:
+SAST_OOB_HOST='<내PC_IP:포트>' ./okra gparking2 --active --oob --cookie 'PHPSESSID=..'
 #   대상 형태: 폴더 | http(s)URL | Burp/HAR 파일 | gitURL(.git) | owner/repo | targets/폴더명
 #   기본=오프라인·비파괴. 명시 플래그(--verify/--capture)로 강제 지정도 가능(하위호환).
 ```
@@ -189,6 +191,8 @@ sast/                     코어 (stdlib 전용, 오프라인)
   capture.py              Track C 패시브 분석: Burp/HAR 파싱→엔드포인트 인벤토리(CSV)+오프라인 룰 (--capture, 패킷0)
   correlate.py            SAST↔캡처 상관(P2, IAST-lite): 정적 발견을 실트래픽으로 도달확인/증상확증 (패킷0)
   replay.py               캡처 기반 능동 검증(role): 무인증스윕·SQLi·XSS(반사/저장형)·LFI·SSTI·명령인젝션·SSRF·XXE·오픈리다이렉트·CRLF·인증부재/우회·IDOR(단일/2계정)
+  oob.py                  OOB 콜백 리스너(stdlib): blind SSRF/XXE/RCE 를 역접속으로 확증 (--oob)
+  login.py                인증: 캡처서 자격증명 자동추출·CSRF 토큰·JSON/Bearer 로그인·2계정·브루트(사이트 무관)
   login.py                인증 세션(ID/PW→로그인·재로그인·2계정 IDOR) + 로그인 브루트포스(옵트인, 약한자격증명/락아웃 부재)
   report.py               results.json(sast-results/2) + 대시보드 생성
   cli.py                  python3 -m sast scan <target> --out <dir> [--online] [--verify URL]

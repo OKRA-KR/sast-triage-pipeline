@@ -5,7 +5,7 @@ from sast.schema import new_finding
 
 def _stub_replay(monkeypatch):
     monkeypatch.setattr(replay, "scan_capture",
-                        lambda exs, a=None, b=None: [new_finding(category="xss", file="u")])
+                        lambda exs, a=None, b=None, oob=None: [new_finding(category="xss", file="u")])
 
 
 def test_active_runs_without_session(monkeypatch):

