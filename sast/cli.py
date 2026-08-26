@@ -27,21 +27,24 @@ def _classify(a):
     return repo, verify, cap
 
 
-def _run_full(exs, findings):
-    """원스텝 전체 점검(캡처/URL 공용) — 인증 세션 확보(못 찾으면 None 반환=종료) →
-    replay(무인증 스윕+SQLi/XSS/IDOR) → (대상계정 있으면)브루트."""
-    ok, sess_a, sess_b = login.working_session(exs)
-    if not ok:
-        return None
-    findings = findings + replay.scan_capture(exs, sess_a, sess_b)
+def _run_active(exs, findings, require_session):
+    """능동 role 엔진(캡처/URL 공용). require_session(--full)=인증 세션 확보 실패 시 None(종료).
+    아니면(--active) 세션이 있으면 인증 상태로, 없으면 '접근되는 대로' 비인증으로 테스트한다."""
+    if require_session:
+        ok, sess_a, sess_b = login.working_session(exs)
+        if not ok:
+            return None
+    else:
+        sess_a, sess_b = login.build_sessions(exs)     # 자격증명 있으면 로그인, 없으면 (None,None)
+        if not sess_a and (os.environ.get("SAST_LOGIN_USER") and os.environ.get("SAST_LOGIN_PASS")):
+            print("[!] 로그인 실패 — 접근 가능한 범위만 비인증으로 테스트합니다(SAST_HTTP_COOKIE 있으면 그걸 사용).")
+    findings = findings + replay.scan_capture(exs, sess_a, sess_b)   # 무인증 스윕+SQLi/XSS/LFI/IDOR
     buser = os.environ.get("SAST_BRUTE_USER")
     if buser:
         wl = os.environ.get("SAST_BRUTE_WORDLIST")
         words = ([w.strip() for w in open(wl, encoding="utf-8", errors="ignore") if w.strip()]
                  if wl and os.path.isfile(wl) else None)
         findings = findings + login.brute_force(exs, buser, words)
-    else:
-        print("[*] 브루트포스는 SAST_BRUTE_USER(대상 계정) 지정 시에만 수행 — 건너뜀")
     return findings
 
 
@@ -106,7 +109,7 @@ def cmd_scan(a):
         layers.append("passive")
         if not engines:
             engines = ["passive"]
-        # 캡처의 엔드포인트를 그대로 겨냥한 정밀 능동 점검(패킷 전송 → 인가 전용, 옵트인)
+        # 캡처의 엔드포인트를 겨냥한 능동 점검(패킷 전송 → 인가 전용, 옵트인). --active=접근되는대로 · --full=세션강제
         if a.active or full or os.environ.get("SAST_ACTIVE"):
             base = verify_url or (exs and f"{exs[0]['scheme']}://{exs[0]['host']}") or ""
             if base:
@@ -114,52 +117,28 @@ def cmd_scan(a):
                     ck = capture.cookie_from(exs)
                     if ck:
                         os.environ["SAST_HTTP_COOKIE"] = ck; print("[*] 캡처 세션 쿠키 재사용")
-                if full:
-                    # ── 원스텝 전체 점검: 인증 세션 확보 강제(못 찾으면 종료) → 무인증+SQLi/XSS/IDOR+브루트 ──
-                    print("[!] 전체 점검(--full) — 인가된 대상에만! 인증 세션 확보 후 1계층 능동 role 일괄 수행.")
-                    res = _run_full(exs, findings)
-                    if res is None:
-                        print("[!] 인증 계정/세션을 확보하지 못했습니다 → 전체 점검 종료. "
-                              "SAST_LOGIN_USER/PASS 또는 유효한 --cookie 를 주세요."); return 4
-                    findings = res; layers.append("replay")
-                else:
-                    print("[!] 능동 DAST(캡처 replay) — 인가된 대상에만! 실제 요청을 재전송하며 표적 검증합니다.")
-                    sess_a, sess_b = login.build_sessions(exs)     # ID/PW(env) 있으면 직접 로그인→싱싱 세션
-                    creds_given = bool(os.environ.get("SAST_LOGIN_USER") and os.environ.get("SAST_LOGIN_PASS"))
-                    if creds_given and not sess_a and not os.environ.get("SAST_LOGIN_ALLOW_UNAUTH"):
-                        print("[!] 로그인 검증 실패 → replay 생략(비인증 스캔 방지). "
-                              "비인증으로라도 진행하려면 SAST_LOGIN_ALLOW_UNAUTH=1")
-                    else:
-                        findings = findings + replay.scan_capture(exs, sess_a, sess_b)   # SQLi/XSS/IDOR
-                        layers.append("replay")
-                    if os.environ.get("SAST_BRUTE"):               # 개별 옵트인 브루트
-                        buser = os.environ.get("SAST_BRUTE_USER")
-                        if not buser:
-                            print("[!] SAST_BRUTE=1 이나 SAST_BRUTE_USER(대상 계정) 미지정 — 본인/테스트 계정만. 스킵")
-                        else:
-                            wl = os.environ.get("SAST_BRUTE_WORDLIST")
-                            words = ([w.strip() for w in open(wl, encoding="utf-8", errors="ignore") if w.strip()]
-                                     if wl and os.path.isfile(wl) else None)
-                            findings = findings + login.brute_force(exs, buser, words); layers.append("brute")
+                print(f"[!] 능동 DAST(캡처 replay{' · --full 세션강제' if full else ''}) — 인가된 대상에만!")
+                res = _run_active(exs, findings, require_session=bool(full))
+                if res is None:
+                    print("[!] 인증 계정/세션 확보 실패 → 전체 점검(--full) 종료. "
+                          "SAST_LOGIN_USER/PASS 또는 유효한 --cookie 필요."); return 4
+                findings = res; layers.append("replay")
 
     # ── Track B : 블랙박스 (라이브 URL) ─────────────────────────
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
         findings = blackbox.probe(findings, verify_url)     # 안전한 수동 recon
         layers.append("blackbox")
-        if full and not cap:      # 도메인만 줘도 원스텝: URL 크롤→exchanges→replay role 엔진
-            print("[!] 전체 점검(--full, URL) — 인가된 대상에만! 크롤로 엔드포인트 식별 후 role 일괄 수행.")
+        # 도메인만 줘도: 크롤로 엔드포인트 식별 → replay role 엔진(접근되는대로 XSS/SQLi/LFI, --full=세션강제)
+        if (a.active or full) and not cap and not os.environ.get("SAST_NO_VERIFY"):
+            print(f"[!] 능동 DAST(URL 크롤→replay{' · --full 세션강제' if full else ''}) — 인가된 대상에만!")
             exs_url, npg, nfm = active.crawl_exchanges(verify_url)
             capture.write_endpoints_csv(capture.endpoints(exs_url), os.path.join(out, "endpoints.csv"))
             print(f"[*] 엔드포인트 식별: 페이지 {npg} · 폼 {nfm} → {out}/endpoints.csv")
-            res = _run_full(exs_url, findings)
+            res = _run_active(exs_url, findings, require_session=bool(full))
             if res is None:
-                print("[!] 인증 계정/세션을 확보하지 못했습니다 → 전체 점검 종료. "
-                      "SAST_LOGIN_USER/PASS 또는 유효한 --cookie 를 주세요."); return 4
+                print("[!] 인증 계정/세션 확보 실패 → 전체 점검(--full) 종료. "
+                      "SAST_LOGIN_USER/PASS 또는 유효한 --cookie 필요."); return 4
             findings = res; layers += ["crawl", "replay"]
-        elif a.active or os.environ.get("SAST_ACTIVE"):     # 경량 능동 DAST (내장, 의존성 0)
-            print("[!] 능동 DAST 모드 — 인가된 대상에만! 엔드포인트 식별 후 탐지 payload 를 전송합니다.")
-            findings = findings + active.scan(verify_url, out_dir=out)
-            layers.append("active-dast")
         if a.okra or os.environ.get("SAST_OKRA") or os.environ.get("SAST_ZAP"):   # OKRA DAST(엔진 ZAP)
             print("[!] OKRA DAST — 인가된 대상에만! spider+active scan + 중요정보 스캔을 수행합니다.")
             findings = okra.scan(verify_url, findings, out_dir=out)

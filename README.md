@@ -26,11 +26,13 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ./okra ./myapp https://app.com cap.har       # 소스+URL+캡처 동시 → 상관분석 자동
 ./okra ./myapp --online                      # 개방망: 2·3계층(LLM) 시도 (SAST_LLM_* 필요)
 #  능동 DAST(패킷 전송, 인가 대상 전용) — 명시 옵트인:
-./okra https://app.example.com --active --cookie 'PHPSESSID=..'   # 경량 능동
-./okra https://app.example.com --okra  --cookie 'PHPSESSID=..'    # OKRA DAST(엔진 OWASP ZAP)
-./okra gparking2 --active --cookie 'PHPSESSID=..'                  # 캡처 replay(실요청 재전송)
-./okra https://app.example.com --full --cookie 'PHPSESSID=..'     # 원스텝 전체(도메인만): 크롤로 엔드포인트 식별→인증세션 확보(못찾으면 종료)→무인증+SQLi/XSS/IDOR(+브루트)
-./okra gparking2 --full  --cookie 'PHPSESSID=..'                   # 캡처로 원스텝 전체(실요청 기반, 더 정밀)
+#   --active = '접근되는 대로' 테스트(세션 없어도 진행) · --full = 인증 세션 확보 강제(못 찾으면 종료)
+./okra https://app.example.com --active                           # 도메인만: 크롤→replay(무인증 스윕+SQLi/XSS/LFI/IDOR)
+./okra https://app.example.com --active --cookie 'PHPSESSID=..'   # + 세션 있으면 인증 상태로도 테스트
+./okra https://app.example.com --full   --cookie 'PHPSESSID=..'   # 원스텝 전체(세션 강제: 없으면 종료)
+./okra https://app.example.com --okra   --cookie 'PHPSESSID=..'   # OKRA DAST(엔진 OWASP ZAP)
+./okra gparking2 --active --cookie 'PHPSESSID=..'                  # 캡처 replay(실요청 기반, 더 정밀)
+./okra gparking2 --full   --cookie 'PHPSESSID=..'                  # 캡처로 원스텝 전체
 #   대상 형태: 폴더 | http(s)URL | Burp/HAR 파일 | gitURL(.git) | owner/repo | targets/폴더명
 #   기본=오프라인·비파괴. 명시 플래그(--verify/--capture)로 강제 지정도 가능(하위호환).
 ```

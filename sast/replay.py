@@ -246,6 +246,12 @@ def scan_capture(exchanges, session=None, session_b=None):
             rx = _send(ex["method"], ux, hdr, bx)
             if rx and XSS_MARK in rx[2]:
                 add(_f("xss", "high", ex, key, XSS_MARK, "마커 미이스케이프 반사", "true_positive"))
+            # ── 경로 탐색(LFI): /etc/passwd 반환 ──
+            up, bp = _mutate(ex, key, loc, "../../../../../../etc/passwd")
+            rp = _send(ex["method"], up, hdr, bp)
+            if rp and re.search(r"root:.*:0:0:", rp[2]):
+                add(_f("path-traversal", "high", ex, key, "../../../../../../etc/passwd",
+                       "/etc/passwd 내용 반환", "true_positive"))
             # ── 권한검증(IDOR): 객체참조 파라미터를 남의 id 로 ──
             if _IDOR_NAME.search(key) and re.fullmatch(r"\d{1,12}", str(val).strip()):
                 iv = int(val)
