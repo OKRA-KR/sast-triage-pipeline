@@ -106,9 +106,12 @@ def _no_auth_headers(ex):
 
 
 def _looks_text(val):
-    """텍스트성 파라미터인가(이름·이메일·메모 등) — 저장형 XSS 주입 대상. 숫자/날짜/id 제외."""
+    """텍스트성 파라미터인가(이름·이메일·메모 등) — 저장형 XSS 주입 대상. 숫자/날짜/id 제외.
+    빈 값(크롤 폼 필드는 값이 없음)은 타입 불명 → 주입 대상으로 본다."""
     v = str(val or "").strip()
-    return 0 < len(v) < 60 and not re.fullmatch(r"[\d\-:/.\s]+", v)
+    if not v:
+        return True
+    return len(v) < 60 and not re.fullmatch(r"[\d\-:/.\s]+", v)
 
 
 def _is_read(ex):
