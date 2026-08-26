@@ -453,14 +453,49 @@ def _stored_xss(reps, ck_a, add):
             return
 
 
+def _loc_of(ex, key):
+    if any(k == key for k, _ in ex["query"]):
+        return "query"
+    for k, _, l in _body_params(ex):
+        if k == key:
+            return l
+    return "query"
+
+
+def _build_poc(ex, key, payload):
+    """점검자가 그대로 붙여 재현할 curl. 정확한 URI + 파라미터/헤더 + payload."""
+    method, url = ex["method"], ex["url"]
+    base = url.split("?")[0]
+    ck = os.environ.get("SAST_HTTP_COOKIE")
+    ckh = f" -H 'Cookie: {ck}'" if ck else ""
+    if str(key).startswith("("):                          # 헤더/특수 프로브
+        if "Origin" in key:
+            return f"curl -si '{url}'{ckh} -H 'Origin: https://evil.example'   # 응답 ACAO 에 반영되는지"
+        if "Host" in key:
+            return f"curl -si '{url}'{ckh} -H 'Host: evil.example'   # 응답/Location 에 evil.example 반영되는지"
+        if "세션" in key or "무인증" in key:
+            return f"curl -si -X {method} '{url}'" + (f" --data '{ex['req_body']}'" if ex['req_body'] else "") + "   # 쿠키/인증 헤더 제거(무인증)"
+        if "XML" in key:
+            return (f"curl -si -X {method} '{url}'{ckh} -H 'Content-Type: application/xml' "
+                    f"--data '<?xml version=\"1.0\"?><!DOCTYPE r [<!ENTITY x SYSTEM \"file:///etc/passwd\">]><r>&x;</r>'")
+        if "계정간" in key:
+            return f"# 계정 B 세션 쿠키로 재전송: curl -si -X {method} '{url}' -H 'Cookie: <계정B세션>'" + (f" --data '{ex['req_body']}'" if ex['req_body'] else "")
+        return f"curl -si -X {method} '{url}'{ckh}"
+    u, b = _mutate(ex, key, _loc_of(ex, key), str(payload))   # 취약 파라미터에 payload 주입
+    if method == "GET" and not b:
+        return f"curl -si '{u}'{ckh}"
+    return f"curl -si -X {method} '{base}'{ckh} -H 'Content-Type: application/x-www-form-urlencoded' --data '{b}'"
+
+
 def _f(cat, sev, ex, key, payload, ev, verdict):
-    loc = f"{ex['method']} {ex['path']}"
+    where = f"{ex['method']} {ex['path']}"
+    ktxt = f"파라미터 '{key}'" if not str(key).startswith("(") else str(key)
     return new_finding(
-        fingerprint="replay-" + cat + "-" + re.sub(r"\W+", "", ex["path"])[-30:] + "-" + key,
+        fingerprint="replay-" + cat + "-" + re.sub(r"\W+", "", ex["path"])[-30:] + "-" + str(key),
         engines=["replay"], rule="replay-" + cat, full_rule="replay:" + cat, pack="replay-dast",
         category=cat, severity=sev, sev_lock=True, source="DAST", verdict=verdict, confidence=0.9,
-        file=ex["url"].split("?")[0], line=0,
-        message=f"[replay] {cat} — {loc} 파라미터 '{key}': {ev}",
-        evidence=f"payload={payload} → {ev}",
-        poc=f"{loc}  {key}={payload}  (캡처 세션 재전송)",
+        file=ex["url"], line=0,                           # 전체 URI(쿼리 포함) — 점검자 재현용
+        message=f"[replay] {cat} — {where} · {ktxt}: {ev}",
+        evidence=f"위치 {where}  ·  대상 URL {ex['url']}  ·  주입 {key}={payload}  ·  {ev}",
+        poc=_build_poc(ex, key, payload),
         dynamic={"status": "confirmed" if verdict == "true_positive" else "candidate", "evidence": ev})

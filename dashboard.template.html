@@ -229,10 +229,14 @@ function findingRows(f){
     `<td class="src">${esc(f.source||'SAST')}</td>`;
   const det=document.createElement('tr'); det.className='detail'; det.hidden=true;
   const dyn=f.dynamic?`<div class="kv"><h5>동적 검증</h5><div class="note">${esc(f.dynamic.status)} — ${esc(f.dynamic.evidence||'')}</div></div>`:'';
-  const poc=f.poc?`<h5>공격 구문</h5><pre class="code">${esc(f.poc)}</pre>`:'';
+  const poc=f.poc?`<h5>재현(PoC) — 그대로 붙여 실행</h5><pre class="code">${esc(f.poc)}</pre>`:'';
   const sup=f.suppressed?`<div class="kv"><h5>억제 사유</h5><div class="note">오탐 억제: ${esc(f.suppress_reason)}</div></div>`:'';
+  const isDyn=(f.source||'SAST')!=='SAST';
+  const leftHead=isDyn
+    ? `<h5>요청 위치 (점검 대상 URI)</h5><pre class="code">${esc(f.file)}</pre>`
+    : `<h5>코드 — ${esc(f.file)}:${f.line}</h5><pre class="code">${esc(f.code||'(컨텍스트 없음)')}</pre>`;
   det.innerHTML=`<td colspan="5"><div class="detail-inner">
-    <div><h5>코드 — ${esc(f.file)}:${f.line}</h5><pre class="code">${esc(f.code||'(컨텍스트 없음)')}</pre>
+    <div>${leftHead}
       <div class="tags">${(f.cwe||[]).map(c=>`<span class="tag">${esc(c.split(':')[0])}</span>`).join('')}${(f.owasp||[]).map(o=>`<span class="tag">${esc(o.split(' - ')[0])}</span>`).join('')}${(f.compliance||[]).map(c=>`<span class="tag comp">${esc(c)}</span>`).join('')}</div></div>
     <div>${f.message?`<div class="kv"><h5>룰 메시지</h5>${esc(f.message)}</div>`:''}
       ${f.rationale?`<div class="kv"><h5>판정 근거</h5>${esc(f.rationale)}</div>`:''}
