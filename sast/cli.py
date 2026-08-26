@@ -27,10 +27,13 @@ def _classify(a):
     return repo, verify, cap
 
 
-def _run_active(exs, findings, require_session, oob=None):
+def _run_active(exs, findings, require_session, oob=None, presession=None):
     """능동 role 엔진(캡처/URL 공용). require_session(--full)=인증 세션 확보 실패 시 None(종료).
-    아니면(--active) 세션이 있으면 인증 상태로, 없으면 '접근되는 대로' 비인증으로 테스트한다."""
-    if require_session:
+    아니면(--active) 세션이 있으면 인증 상태로, 없으면 '접근되는 대로' 비인증으로 테스트한다.
+    presession=(a,b) 가 주어지면 재로그인 없이 그 세션을 사용(URL 인증 재크롤 후)."""
+    if presession is not None:
+        sess_a, sess_b = presession
+    elif require_session:
         ok, sess_a, sess_b = login.working_session(exs)
         if not ok:
             return None
@@ -137,13 +140,23 @@ def cmd_scan(a):
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
         findings = blackbox.probe(findings, verify_url)     # 안전한 수동 recon
         layers.append("blackbox")
-        # 도메인만 줘도: 크롤로 엔드포인트 식별 → replay role 엔진(접근되는대로 전체 role)
+        # 도메인만 줘도: 크롤 → (로그인 되면 인증 재크롤: 레슨/JS API 도달) → replay role 엔진
         if run_active and not cap:
             print("[!] 능동 DAST(URL 크롤→replay) — 인가된 대상에만!")
-            exs_url, npg, nfm = active.crawl_exchanges(verify_url)
+            exs_url, npg, nfm = active.crawl_exchanges(verify_url)      # 1차: 로그인 폼 발견용
+            sess_a, sess_b = login.build_sessions(exs_url)              # 자격증명/캡처추출로 로그인
+            if sess_a and sess_a.cookie and not str(sess_a.cookie).startswith("Bearer "):
+                os.environ["SAST_HTTP_COOKIE"] = sess_a.cookie
+                print("[*] 로그인 세션으로 인증 재크롤 — 로그인 뒤 페이지·JS API 도달")
+                aexs, anpg, anfm = active.crawl_exchanges(verify_url)   # 2차: 인증 상태 재크롤
+                if len(aexs) >= len(exs_url):                          # 인증 크롤이 더 찾았을 때만 채택
+                    exs_url, npg, nfm = aexs, anpg, anfm
+                else:
+                    print(f"[*] 인증 재크롤 {len(aexs)}건 ≤ 비인증 {len(exs_url)}건 — 비인증 결과 유지")
             capture.write_endpoints_csv(capture.endpoints(exs_url), os.path.join(out, "endpoints.csv"))
             print(f"[*] 엔드포인트 식별: 페이지 {npg} · 폼 {nfm} → {out}/endpoints.csv")
-            findings = _run_active(exs_url, findings, require_session=False, oob=oob_listener)
+            findings = _run_active(exs_url, findings, require_session=False,
+                                   oob=oob_listener, presession=(sess_a, sess_b))
             layers += ["crawl", "replay"]
         if a.okra or os.environ.get("SAST_OKRA") or os.environ.get("SAST_ZAP"):   # OKRA DAST(엔진 ZAP)
             print("[!] OKRA DAST — 인가된 대상에만! spider+active scan + 중요정보 스캔을 수행합니다.")
