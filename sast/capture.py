@@ -110,7 +110,52 @@ def parse(path):
     return _parse_burp(path)
 
 
-# ── 요청 바디 파라미터 파싱 (urlencoded / JSON) ──────────────────────
+# ── 요청 바디 파라미터 파싱 (urlencoded / JSON / 봉투형 JSON) ──────────
+# 봉투형 = message=<URL인코딩 JSON> 처럼 폼필드 값 안에 JSON 이 통째로 든 형태.
+# (BizMOB/스크린ID .json RPC 등 국내 앱에 흔함) — 안쪽 JSON 리프값이 진짜 주입점이다.
+
+_MAX_LEAVES = 60                       # exchange 당 리프 파라미터 상한(폭발 방지)
+_OPAQUE = re.compile(r"^[A-Za-z0-9+/]{24,}={0,2}$")   # base64/암호블롭 추정 — 퍼징 무의미, 스킵
+_PATH_TOK = re.compile(r"[^.\[\]]+|\[\d+\]")          # a.b[0].c → [a, b, [0], c]
+
+
+def _fuzzable_leaf(v):
+    if isinstance(v, bool) or v is None:
+        return False
+    if isinstance(v, (int, float)):
+        return True
+    if isinstance(v, str):
+        return len(v) < 512 and not _OPAQUE.match(v)   # 암호블롭/토큰류는 제외
+    return False
+
+
+def _json_leaves(obj, prefix=""):
+    """중첩 dict/list 를 재귀 전개해 (경로문자열, 값) 리프 목록. 경로 예: body.phone_number, items[0].id."""
+    out = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            out += _json_leaves(v, f"{prefix}.{k}" if prefix else str(k))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            out += _json_leaves(v, f"{prefix}[{i}]")
+    elif _fuzzable_leaf(obj):
+        out.append((prefix, obj))
+    return out[:_MAX_LEAVES]
+
+
+def _set_by_path(obj, path, val):
+    """_json_leaves 가 만든 경로문자열 위치의 값을 val 로 치환(제자리). 실패 시 예외."""
+    toks = _PATH_TOK.findall(path)
+    cur = obj
+    for t in toks[:-1]:
+        cur = cur[int(t[1:-1])] if t[:1] == "[" else cur[t]
+    last = toks[-1]
+    if last[:1] == "[":
+        cur[int(last[1:-1])] = val
+    else:
+        cur[last] = val
+    return obj
+
 
 def _body_params(ex):
     ct = (ex["req_headers"].get("content-type") or "").lower()
@@ -118,13 +163,23 @@ def _body_params(ex):
     params = []
     if "application/json" in ct or body[:1] in ("{", "["):
         try:
-            obj = json.loads(body)
-            if isinstance(obj, dict):
-                params = [(k, obj[k], "json") for k in obj]
+            params = [(p, v, "json") for p, v in _json_leaves(json.loads(body))]
         except Exception:
             pass
-    elif "=" in body and len(body) < 4000:
-        params = [(k, v, "body") for k, v in parse_qsl(body, keep_blank_values=True)]
+    elif "=" in body and len(body) < 8000:
+        for k, v in parse_qsl(body, keep_blank_values=True):
+            leaves = []
+            if "|" not in k and v[:1] in ("{", "["):     # 값이 통째 JSON인 폼필드 = 봉투
+                try:
+                    inner = json.loads(v)
+                    if isinstance(inner, (dict, list)):
+                        leaves = _json_leaves(inner)
+                except Exception:
+                    leaves = []
+            if leaves:
+                params += [(f"{k}|{p}", lv, "json-env") for p, lv in leaves]   # 안쪽 리프를 주입점으로
+            else:
+                params.append((k, v, "body"))
     return params
 
 

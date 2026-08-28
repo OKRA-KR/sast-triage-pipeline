@@ -14,7 +14,7 @@ baseline 으로 재전송**하고 파라미터 하나만 변형해 확증한다:
 import hashlib, json, os, re, ssl, time, urllib.request, urllib.error
 from urllib.parse import urlparse, parse_qsl, urlencode
 from .schema import new_finding
-from .capture import _SQL_ERR, _IDOR_NAME, _body_params, _headers
+from .capture import _SQL_ERR, _IDOR_NAME, _body_params, _headers, _set_by_path, _OPAQUE
 from . import env
 
 TIMEOUT = 10
@@ -151,9 +151,19 @@ def _mutate(ex, key, loc, newval):
         q[key] = newval
         url = pr._replace(query=urlencode(q)).geturl(); return url, body
     url = pr._replace(query=urlencode(q)).geturl() if q else ex["url"]
+    if loc == "json-env":                       # 봉투형: 폼필드 안 JSON 리프만 치환, 봉투 구조 보존
+        formkey, path = key.split("|", 1)
+        bd = dict(parse_qsl(body, keep_blank_values=True))
+        try:
+            inner = json.loads(bd.get(formkey, ""))
+            _set_by_path(inner, path, newval)
+            bd[formkey] = json.dumps(inner, ensure_ascii=False)
+        except Exception:
+            return url, body
+        return url, urlencode(bd)
     if loc == "json" or "application/json" in ct:
         try:
-            obj = json.loads(body); obj[key] = newval; return url, json.dumps(obj)
+            obj = json.loads(body); _set_by_path(obj, key, newval); return url, json.dumps(obj, ensure_ascii=False)
         except Exception:
             return url, body
     bd = dict(parse_qsl(body, keep_blank_values=True)); bd[key] = newval
@@ -179,6 +189,62 @@ def _data_tokens(body):
     body = body or ""
     toks = set(_EMAIL.findall(body)[:10]) | set(_KRPHONE.findall(body)[:10]) | set(_NUMID.findall(body)[:10])
     return {t for t in toks if len(t) >= 4}
+
+
+# 앱단 실패 봉투(HTTP 200 이어도 처리 거부) — BizMOB/스크린ID .json 등 JSON API 는 실패도 200 반환
+_APP_FAIL = re.compile(
+    r'"(result|success|isSuccess|resultYn|resultCode)"\s*:\s*(false|"[NFnf0]"|"fail"|"9[0-9]{2,}")'
+    r'|"(error_code|errorCode|errCode)"\s*:\s*"[^"]+?"'      # 비어있지 않은 에러코드
+    r'|"(error_text|errorMsg|errMsg|resultMsg)"\s*:\s*"[^"]*?(실패|오류|error|denied|권한|인증)[^"]*?"', re.I)
+
+
+def _app_denied(r):
+    """HTTP 는 200 이라도 응답 봉투가 '처리 실패/거부'를 나타내면 접근된 것이 아니다(오탐 억제)."""
+    return bool(r) and bool(_APP_FAIL.search((r[2] or "")[:3000]))
+
+
+def _walk_strs(o):
+    if isinstance(o, dict):
+        for v in o.values():
+            yield from _walk_strs(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _walk_strs(v)
+    elif isinstance(o, str):
+        yield o
+
+
+def _opaque_json(body):
+    """{"body":"<base64 암호블롭>"} 처럼 읽을 수 있는 데이터 없이 암호문만 담긴 JSON 응답?
+    → 무인증 접근이 되어도 '데이터 노출'을 확증할 수 없다(요청 암호본문에 인증 내장 가능성도 있음).
+    문자열 리프 전체를 보고, 큰 암호블롭이 있고 읽을 만한 문자열이 없으면 불투명으로 판정
+    (base64 안 우연한 숫자열을 데이터로 오인하지 않음)."""
+    b = (body or "").strip()
+    if not b.startswith(("{", "[")):
+        return False
+    try:
+        obj = json.loads(b)
+    except Exception:
+        return False
+    strs = [v for v in _walk_strs(obj) if v]
+    if not strs:
+        return False
+    blobs = [v for v in strs if len(v) >= 24 and _OPAQUE.match(v)]
+    readable = [v for v in strs if len(v) >= 8 and not (len(v) >= 24 and _OPAQUE.match(v))]
+    return bool(blobs) and not readable
+
+
+def _is_html_resp(r):
+    """반사형 XSS 는 HTML 로 렌더되는 응답에서만 유효. JSON/이미지 등에 필드가 에코돼도 XSS 아님."""
+    if not r:
+        return False
+    ct = (r[1].get("content-type", "") or "").lower()
+    if "html" in ct:
+        return True
+    if ct:                       # JSON/plain/이미지 등 명시된 비-HTML → 반사돼도 XSS 아님
+        return False
+    body = (r[2] or "")[:400].lstrip().lower()      # content-type 없으면 본문 스니핑
+    return body.startswith("<!doctype") or body.startswith("<html") or "<body" in body
 
 
 def _blocked(r):
@@ -292,7 +358,7 @@ def scan_capture(exchanges, session=None, session_b=None, oob=None):
                                       "엔드포인트일 수 있음(IDOR 아님 가능). 객체참조 파라미터 조작으로 수동 확인 권장.")
                     add(f)
         for key, val, loc in _params(ex):
-            val = val or "1"
+            val = "1" if val in (None, "") else str(val)   # JSON 리프가 숫자/불린일 수 있음 → payload 합성 위해 문자열화
             # ── SQLi: 오류 시그니처 ──
             u, b = _mutate(ex, key, loc, val + "'")
             r = _send(ex["method"], u, hdr, b)
@@ -312,8 +378,8 @@ def scan_capture(exchanges, session=None, session_b=None, oob=None):
             # ── XSS: 마커 반사 ──
             ux, bx = _mutate(ex, key, loc, XSS_MARK)
             rx = _send(ex["method"], ux, hdr, bx)
-            if rx and XSS_MARK in rx[2]:
-                add(_f("xss", "high", ex, key, XSS_MARK, "마커 미이스케이프 반사", "true_positive"))
+            if rx and XSS_MARK in rx[2] and _is_html_resp(rx):   # HTML 컨텍스트에서만 — JSON 봉투 에코는 XSS 아님
+                add(_f("xss", "high", ex, key, XSS_MARK, "마커 미이스케이프 반사(HTML 응답)", "true_positive"))
             # ── 경로 탐색(LFI): /etc/passwd 반환 ──
             up, bp = _mutate(ex, key, loc, "../../../../../../etc/passwd")
             rp = _send(ex["method"], up, hdr, bp)
@@ -415,20 +481,32 @@ def _unauth_sweep(reps, add):
     authed = [ex for ex in reps if _had_auth(ex)]
     if not authed:
         return
-    hit = 0
+    hit = rev = 0
     for ex in authed:
         r = _send(ex["method"], ex["url"], _no_auth_headers(ex), ex["req_body"] or None)
-        if r and not _blocked(r) and 200 <= r[0] < 300 and _resp_len(r) > 50:
+        if not (r and not _blocked(r) and not _app_denied(r) and 200 <= r[0] < 300 and _resp_len(r) > 50):
+            continue
+        ct = (r[1].get("content-type", "") or "").lower()
+        # 응답이 암호화/불투명(JSON 암호블롭)이면 데이터 노출 확증 불가 → 검토대상으로 강등(오탐 방지)
+        if _opaque_json(r[2]) and "html" not in ct and not ct.startswith(("image", "application/octet")):
+            rev += 1
+            f = _f("missing-auth", "medium", ex, "(무인증)", "세션/인증 제거 재전송",
+                   f"인증 없이 {ex['method']} {ex['path']} 200 응답(암호화 본문) — 데이터 노출/인증내장 여부 수동확인 필요",
+                   "needs_review")
+            f["confidence"] = 0.4
+            f["rationale"] = ("세션/쿠키 제거 후에도 200+본문을 반환하나 응답이 암호화돼 실제 데이터 노출을 확증 못함. "
+                              "요청 암호본문에 인증정보가 내장됐을 수 있어 진짜 인증부재인지 복호화/수동확인 필요.")
+        else:
             hit += 1
             f = _f("missing-auth", "critical", ex, "(무인증)", "세션/인증 제거 재전송",
                    f"인증 없이 {ex['method']} {ex['path']} 처리됨({r[0]}, len {_resp_len(r)}) — 인증/권한 부재(CWE-306)",
                    "true_positive")
             f["confidence"] = 0.85
             f["rationale"] = ("캡처에서 인증(쿠키)이 있던 요청을 세션/인증 헤더 제거 후 재전송했을 때 차단 없이 "
-                              "데이터/성공 반환 → 서버가 인증을 강제하지 않음. 상태변경이면 비인증 조작·계정탈취로 연결.")
-            add(f)
-    print(f"[*] 무인증 접근 점검: 인증대상 {len(authed)}개 중 {hit}개 무인증 접근 가능"
-          + (" ⚠" if hit else ""))
+                              "읽을 수 있는 데이터/미디어 반환 → 서버가 인증을 강제하지 않음. 상태변경이면 비인증 조작·계정탈취로 연결.")
+        add(f)
+    print(f"[*] 무인증 접근 점검: 인증대상 {len(authed)}개 중 확증 {hit}개" + (" ⚠" if hit else "")
+          + (f" · 검토(암호응답) {rev}개" if rev else ""))
 
 
 def _stored_xss(reps, ck_a, add):
@@ -446,7 +524,7 @@ def _stored_xss(reps, ck_a, add):
         return
     for ex in [e for e in reps if e["method"] == "GET"]:
         r = _send("GET", ex["url"], _headers_for(ex, ck_a), None)
-        if r and _STORED_RAW in r[2]:      # '<okrStored9z' 그대로 = '<' 미이스케이프
+        if r and _STORED_RAW in r[2] and _is_html_resp(r):   # HTML 응답에서 미이스케이프 반사만 저장형 XSS
             f = _f("xss", "high", ex, "(저장형)", _STORED_PAYLOAD,
                    f"저장형 XSS — 주입 마커가 {ex['path']} 응답에 미이스케이프 반사(저장→재조회 확인)",
                    "true_positive")
