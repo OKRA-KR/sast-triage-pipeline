@@ -7,7 +7,7 @@
 """
 import argparse, os, re, sys
 from .engines import run_all
-from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, capture, correlate, replay, login, report, env
+from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, capture, correlate, replay, login, report, env, recon
 
 
 def _classify(a):
@@ -136,32 +136,66 @@ def cmd_scan(a):
                 findings = _run_active(exs, findings, require_session=False, oob=oob_listener)
                 layers.append("replay")
 
-    # ── Track B : 블랙박스 (라이브 URL) ─────────────────────────
+    # ── Track B : 블랙박스 (라이브 URL, --recon 시 하위도메인으로 확장) ──
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
-        findings = blackbox.probe(findings, verify_url)     # 안전한 수동 recon
-        layers.append("blackbox")
-        # 도메인만 줘도: 크롤 → (로그인 되면 인증 재크롤: 레슨/JS API 도달) → replay role 엔진
-        if run_active and not cap:
-            print("[!] 능동 DAST(URL 크롤→replay) — 인가된 대상에만!")
-            exs_url, npg, nfm = active.crawl_exchanges(verify_url)      # 1차: 로그인 폼 발견용
-            sess_a, sess_b = login.build_sessions(exs_url)              # 자격증명/캡처추출로 로그인
-            if sess_a and sess_a.cookie and not str(sess_a.cookie).startswith("Bearer "):
-                os.environ["SAST_HTTP_COOKIE"] = sess_a.cookie
-                print("[*] 로그인 세션으로 인증 재크롤 — 로그인 뒤 페이지·JS API 도달")
-                aexs, anpg, anfm = active.crawl_exchanges(verify_url)   # 2차: 인증 상태 재크롤
-                if len(aexs) >= len(exs_url):                          # 인증 크롤이 더 찾았을 때만 채택
-                    exs_url, npg, nfm = aexs, anpg, anfm
-                else:
-                    print(f"[*] 인증 재크롤 {len(aexs)}건 ≤ 비인증 {len(exs_url)}건 — 비인증 결과 유지")
-            capture.write_endpoints_csv(capture.endpoints(exs_url), os.path.join(out, "endpoints.csv"))
-            print(f"[*] 엔드포인트 식별: 페이지 {npg} · 폼 {nfm} → {out}/endpoints.csv")
-            findings = _run_active(exs_url, findings, require_session=False,
-                                   oob=oob_listener, presession=(sess_a, sess_b))
-            layers += ["crawl", "replay"]
-        if a.okra or os.environ.get("SAST_OKRA") or os.environ.get("SAST_ZAP"):   # OKRA DAST(엔진 ZAP)
-            print("[!] OKRA DAST — 인가된 대상에만! spider+active scan + 중요정보 스캔을 수행합니다.")
-            findings = okra.scan(verify_url, findings, out_dir=out)
-            layers.append("okra-dast")
+        verify_urls = [verify_url]
+        # --recon: 등록가능 도메인 하위 하위도메인 열거 → 라이브 호스트를 점검대상에 합류(원스텝)
+        if getattr(a, "recon", False) or os.environ.get("SAST_RECON"):
+            subs, live = recon.discover(
+                verify_url, wordlist=getattr(a, "recon_wordlist", None),
+                passive=getattr(a, "recon_passive", False),
+                threads=int(os.environ.get("SAST_RECON_THREADS", "40")),
+                same_port=getattr(a, "recon_same_port", False))
+            recon.write_reports(subs, live, out)
+            for h in live:
+                if h["base"] not in verify_urls:
+                    verify_urls.append(h["base"])
+            print(f"[*] recon: 점검 대상 {len(verify_urls)}개(원본+라이브 하위도메인) → subdomains.txt·live.csv")
+            layers.append("recon")
+
+        base_cookie = os.environ.get("SAST_HTTP_COOKIE")   # 호스트 간 세션 누수 방지용 스냅샷
+        all_eps = []
+        for vu in verify_urls:
+            if base_cookie is not None:
+                os.environ["SAST_HTTP_COOKIE"] = base_cookie
+            else:
+                os.environ.pop("SAST_HTTP_COOKIE", None)
+            if len(verify_urls) > 1:
+                print(f"[*] URL 점검: {vu}")
+            findings = blackbox.probe(findings, vu)     # 안전한 수동 recon
+            if "blackbox" not in layers:
+                layers.append("blackbox")
+            # 도메인만 줘도: 크롤 → (로그인 되면 인증 재크롤: 레슨/JS API 도달) → replay role 엔진
+            if run_active and not cap:
+                print("[!] 능동 DAST(URL 크롤→replay) — 인가된 대상에만!")
+                exs_url, npg, nfm = active.crawl_exchanges(vu)         # 1차: 로그인 폼 발견용
+                sess_a, sess_b = login.build_sessions(exs_url)         # 자격증명/캡처추출로 로그인
+                if sess_a and sess_a.cookie and not str(sess_a.cookie).startswith("Bearer "):
+                    os.environ["SAST_HTTP_COOKIE"] = sess_a.cookie
+                    print("[*] 로그인 세션으로 인증 재크롤 — 로그인 뒤 페이지·JS API 도달")
+                    aexs, anpg, anfm = active.crawl_exchanges(vu)      # 2차: 인증 상태 재크롤
+                    if len(aexs) >= len(exs_url):                      # 인증 크롤이 더 찾았을 때만 채택
+                        exs_url, npg, nfm = aexs, anpg, anfm
+                    else:
+                        print(f"[*] 인증 재크롤 {len(aexs)}건 ≤ 비인증 {len(exs_url)}건 — 비인증 결과 유지")
+                all_eps += capture.endpoints(exs_url)
+                findings = _run_active(exs_url, findings, require_session=False,
+                                       oob=oob_listener, presession=(sess_a, sess_b))
+                for _l in ("crawl", "replay"):
+                    if _l not in layers:
+                        layers.append(_l)
+            if a.okra or os.environ.get("SAST_OKRA") or os.environ.get("SAST_ZAP"):   # OKRA DAST(엔진 ZAP)
+                print("[!] OKRA DAST — 인가된 대상에만! spider+active scan + 중요정보 스캔을 수행합니다.")
+                findings = okra.scan(vu, findings, out_dir=out)
+                if "okra-dast" not in layers:
+                    layers.append("okra-dast")
+        if all_eps:
+            capture.write_endpoints_csv(all_eps, os.path.join(out, "endpoints.csv"))
+            print(f"[*] 엔드포인트 식별 {len(all_eps)}개 → {out}/endpoints.csv")
+        if base_cookie is not None:
+            os.environ["SAST_HTTP_COOKIE"] = base_cookie
+        else:
+            os.environ.pop("SAST_HTTP_COOKIE", None)
 
     # ── 1계층 마무리: 오프라인 트리아지 (외부통신 0 — 폐쇄망서도 자립 완결) ──
     # 입력이 소스/URL/캡처 무엇이든, 모인 모든 발견에 동일하게 적용된다.
@@ -218,6 +252,14 @@ def main(argv=None):
                     help="1계층만: 능동 DAST(전체 role) + 오프라인 트리아지, LLM 계층 강제 OFF(폐쇄망)")
     sc.add_argument("--okra", "--zap", dest="okra", action="store_true",
                     help="OKRA DAST(ZAP 엔진 spider+ascan + 중요정보 스캔, 인가 전용)")
+    sc.add_argument("--recon", action="store_true",
+                    help="정찰 통합: 대상 URL 의 등록가능 도메인 하위 하위도메인 열거→라이브 호스트를 자동으로 점검대상에 합류(원스텝)")
+    sc.add_argument("--recon-passive", action="store_true",
+                    help="recon 시 crt.sh(공개 CT) 조회까지 — 대상 도메인명이 외부로 나감(기본 OFF)")
+    sc.add_argument("--recon-wordlist", default=None, metavar="FILE",
+                    help="recon 하위도메인 사전 파일(줄당 1개, 내장 사전에 추가)")
+    sc.add_argument("--recon-same-port", action="store_true",
+                    help="recon 으로 찾은 하위도메인을 대상과 같은 포트로 프로빙(기본: 443/80)")
     sc.add_argument("--oob", action="store_true",
                     help="OOB 콜백 리스너(blind SSRF/XXE/RCE 확증, 인가 전용; SAST_OOB_HOST 로 콜백주소 지정)")
     sc.add_argument("--insecure", action="store_true", help="TLS 인증서 검증 끔(자기서명 폐쇄망 대상 전용)")
