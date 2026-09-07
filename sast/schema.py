@@ -102,6 +102,7 @@ def new_finding(**kw):
         severity="low", verdict="needs_review", confidence=0.0,
         file="", line=0, endline=0, cwe=[], owasp=[], compliance=[], code="", message="",
         rationale="", evidence="", fix="", poc="", playbook="", reachable="unknown", sev_lock=False,
+        preconditions=[], exploitability="unproven", kisa_item="",
         source="SAST", dynamic=None, corroborated=None, suppressed=False, suppress_reason="",
     )
     base.update(kw)

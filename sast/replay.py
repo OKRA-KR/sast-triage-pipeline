@@ -93,6 +93,11 @@ _NOSQL_ERR = re.compile(r"MongoError|Mongoose|MongoDB|BSON|CastError|E11000|\$wh
 _STORED_MARK = "okrStored9z"                 # 저장형 XSS 고유 마커
 _STORED_PAYLOAD = '"><' + _STORED_MARK + '>'  # 속성 탈출 + 태그(미이스케이프면 '<' 그대로 반사)
 _STORED_RAW = "<" + _STORED_MARK
+# content-type 미지정 응답이 HTML 로 렌더될지 판정 — 대표 HTML 태그 존재 여부(조각 포함).
+_HTML_TAG = re.compile(
+    r"<(?:!doctype|html|head|body|div|span|input|textarea|form|table|td|tr|th|"
+    r"p|a|script|img|ul|ol|li|h[1-6]|button|select|option|label|iframe|svg|nav|section)[\s/>]",
+    re.I)
 
 
 def _had_auth(ex):
@@ -243,8 +248,9 @@ def _is_html_resp(r):
         return True
     if ct:                       # JSON/plain/이미지 등 명시된 비-HTML → 반사돼도 XSS 아님
         return False
-    body = (r[2] or "")[:400].lstrip().lower()      # content-type 없으면 본문 스니핑
-    return body.startswith("<!doctype") or body.startswith("<html") or "<body" in body
+    # content-type 없으면 본문 스니핑 — 완전 문서뿐 아니라 HTML 조각(<input value=..> 등)도 인정.
+    # 저장/반사형 XSS 는 헤더 없는 조각 응답에 반영되는 경우가 흔하다(재현율 보존).
+    return bool(_HTML_TAG.search((r[2] or "")[:2000]))
 
 
 def _blocked(r):

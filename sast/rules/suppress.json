@@ -1,7 +1,6 @@
 {
   "version": 1,
   "note": "오탐 억제/심각도 룰 라이브러리. 코드 수정 없이 이 파일만 늘려서 오탐을 줄이고 룰을 고도화한다. 폐쇄망 대비 stdlib(JSON)만 사용.",
-
   "severity_by_category": {
     "sql-injection": "critical",
     "nosql-injection": "critical",
@@ -37,37 +36,89 @@
     "ci-hardening": "low",
     "supply-chain": "low"
   },
-
   "path_suppress": [
-    {"pattern": "(^|/)(test|tests|__tests__|spec|specs)/", "reason": "테스트 코드"},
-    {"pattern": "\\.(spec|test|e2e|stories)\\.[a-z0-9]+$", "reason": "테스트/스토리 파일(.spec/.test/.e2e)"},
-    {"pattern": "(^|/)(examples?|samples?|fixtures?|codefixes|mocks?)/", "reason": "예제/픽스처(비-런타임)"},
-    {"pattern": "_correct\\.[a-z0-9]+$", "reason": "참조-정답 파일"},
-    {"pattern": "\\.(min|bundle)\\.(js|css)$", "reason": "빌드 산출물"},
-    {"pattern": "(^|/)(vendor|node_modules|dist|build|out|coverage)/", "reason": "서드파티/빌드 산출물"},
-    {"pattern": "(^|/)docs?/", "reason": "문서"},
-    {"pattern": "\\.(md|markdown|rst|txt)$", "reason": "문서 파일"}
+    {
+      "pattern": "(^|/)(test|tests|__tests__|spec|specs)/",
+      "reason": "테스트 코드"
+    },
+    {
+      "pattern": "\\.(spec|test|e2e|stories)\\.[a-z0-9]+$",
+      "reason": "테스트/스토리 파일(.spec/.test/.e2e)"
+    },
+    {
+      "pattern": "(^|/)(examples?|samples?|fixtures?|codefixes|mocks?)/",
+      "reason": "예제/픽스처(비-런타임)"
+    },
+    {
+      "pattern": "_correct\\.[a-z0-9]+$",
+      "reason": "참조-정답 파일"
+    },
+    {
+      "pattern": "\\.(min|bundle)\\.(js|css)$",
+      "reason": "빌드 산출물"
+    },
+    {
+      "pattern": "(^|/)(vendor|node_modules|dist|build|out|coverage)/",
+      "reason": "서드파티/빌드 산출물"
+    },
+    {
+      "pattern": "(^|/)docs?/",
+      "reason": "문서"
+    },
+    {
+      "pattern": "\\.(md|markdown|rst|txt)$",
+      "reason": "문서 파일"
+    },
+    {
+      "pattern": "(^|/)\\.github/",
+      "reason": "CI/CD 워크플로(앱 코드 아님 — 웹 점검 범위 밖)"
+    },
+    {
+      "pattern": "(^|/)(semgrep-rules|codeql|osv-scanner)/",
+      "reason": "스캐너 자체 도구/룰 번들(자기 스캔 노이즈)"
+    },
+    {
+      "pattern": "(^|/)(node_modules|vendor|dist|build|target|\\.gradle)/",
+      "reason": "빌드 산출물/의존성"
+    }
   ],
-
   "rule_suppress": [
-    {"rule": "^node_username$", "reason": "취약점 클래스가 아님 — username 사용 표시(njsscan 정보성)"},
-    {"rule": "^node_timing_attack$", "reason": "njsscan 타이밍 룰 오탐 다발(프론트 검증기 등 비보안 비교)"}
+    {
+      "rule": "^node_username$",
+      "reason": "취약점 클래스가 아님 — username 사용 표시(njsscan 정보성)"
+    },
+    {
+      "rule": "^node_timing_attack$",
+      "reason": "njsscan 타이밍 룰 오탐 다발(프론트 검증기 등 비보안 비교)"
+    }
   ],
-
   "downgrade": [
-    {"category": "iac-misconfig", "code_contains": "\"public\"", "to_severity": "info",
-     "reason": "설계상 퍼블릭 서브넷(public 이름) — 의도된 공인 IP"},
-    {"category": "path-traversal", "code_regex": "!\\s*\\w+\\.includes\\(['\"]/['\"]\\)", "to_severity": "low",
-     "reason": "슬래시 차단 가드 선행 — 디렉터리 이탈 완화됨"}
+    {
+      "category": "iac-misconfig",
+      "code_contains": "\"public\"",
+      "to_severity": "info",
+      "reason": "설계상 퍼블릭 서브넷(public 이름) — 의도된 공인 IP"
+    },
+    {
+      "category": "path-traversal",
+      "code_regex": "!\\s*\\w+\\.includes\\(['\"]/['\"]\\)",
+      "to_severity": "low",
+      "reason": "슬래시 차단 가드 선행 — 디렉터리 이탈 완화됨"
+    }
   ],
-
   "crossval": {
     "note": "패턴 엔진(njsscan 등) 오탐을 taint 엔진(CodeQL) 결과로 정정. 같은 파일에 taint 확증이 없으면 강등, 있으면 교차확증(신뢰↑). taint 결과가 아예 없으면(비-deep) 비활성.",
-    "taint_engines": ["codeql"],
+    "taint_engines": [
+      "codeql"
+    ],
     "require_corroboration": [
       {
         "category": "nosql-injection",
-        "by_categories": ["nosql-injection", "sql-injection", "code-injection"],
+        "by_categories": [
+          "nosql-injection",
+          "sql-injection",
+          "code-injection"
+        ],
         "to_severity": "low",
         "verdict": "likely_fp",
         "reason": "CodeQL taint 미확증 — 파라미터라이즈드(Sequelize where-객체) 쿼리로 추정, njsscan 패턴 오탐"

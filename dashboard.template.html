@@ -77,14 +77,16 @@ tr.frow td:first-child{padding-left:34px;}
 tr.frow{border-bottom:1px solid var(--line);cursor:pointer;}
 tr.frow:hover{background:var(--surface-2);}
 tr.detail td{padding:0;background:var(--surface-2);border-bottom:1px solid var(--line-2);}
-.detail-inner{padding:14px 16px;display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
+.detail-inner{padding:14px 16px;display:grid;grid-template-columns:1.4fr 1fr;gap:16px;overflow-wrap:anywhere;word-break:break-word;}
+.detail-inner>div{min-width:0;}
+.detail-inner h5{overflow-wrap:anywhere;}
 @media (max-width:900px){.detail-inner{grid-template-columns:1fr;}}
 .detail-inner h5{margin:0 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);font-weight:700;}
 pre.code{margin:0;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:11px 12px;overflow-x:auto;font-size:11.5px;line-height:1.6;color:#cdd7e6;}
-.kv{margin-bottom:10px;font-size:13px;}.kv .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
+.kv{margin-bottom:10px;font-size:13px;overflow-wrap:anywhere;word-break:break-word;}.kv .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
 .tag{font-size:10px;font-family:"IBM Plex Mono",monospace;padding:2px 6px;border-radius:5px;background:var(--surface-3);color:var(--ink-soft);}
 .tag.comp{background:var(--med-bg);color:var(--med);}
-.note{border-left:3px solid var(--warn);background:var(--warn-bg);padding:7px 10px;border-radius:0 6px 6px 0;font-size:12px;}
+.note{border-left:3px solid var(--warn);background:var(--warn-bg);padding:7px 10px;border-radius:0 6px 6px 0;font-size:12px;overflow-wrap:anywhere;}
 .count{font-size:12px;color:var(--ink-soft);margin:0 0 8px;}
 /* drop zone */
 #drop{display:none;position:fixed;inset:0;background:rgba(15,19,26,.96);z-index:10;align-items:center;justify-content:center;text-align:center;}
@@ -93,6 +95,15 @@ pre.code{margin:0;background:var(--code-bg);border:1px solid var(--line);border-
 #drop h2{margin:0 0 10px;font-size:20px;}#drop p{color:var(--ink-soft);margin:6px 0;}
 #drop label.file{display:inline-block;margin-top:14px;padding:10px 18px;font-size:14px;}
 footer{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-faint);}
+.precos{list-style:none;padding:0;margin:6px 0 0;font-size:12px;}
+.precos li{padding:3px 0;line-height:1.4;}
+.precos .pmark{display:inline-block;width:16px;font-weight:700;}
+.precos .ps-ok .pmark,.precos li.ps-ok{color:var(--crit);}
+.precos li.ps-no{color:var(--ok);}.precos li.ps-unk{color:var(--muted,#888);}
+.precos .opt{opacity:.6;font-size:11px;}.precos .pev{opacity:.75;}
+.exp-confirmed{background:var(--crit-bg);color:var(--crit);}
+.exp-refuted{background:var(--ok-bg);color:var(--ok);}
+.exp-unproven,.exp-unlikely,.exp-likely{background:var(--warn-bg);color:var(--warn);}
 </style>
 </head>
 <body>
@@ -146,6 +157,8 @@ const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&l
 const SEVORD = {critical:0,high:1,medium:2,low:3,info:4};
 const SEVKO = {critical:"크리티컬",high:"높음",medium:"중간",low:"낮음",info:"정보"};
 const VDKO = {true_positive:"실제 취약점",false_positive:"오탐",needs_review:"검토 필요",likely_fp:"오탐 추정(교차)",untriaged:"미분류"};
+const EXPKO={confirmed:"성립확증",likely:"성립우세",unproven:"미확증",unlikely:"성립약함",refuted:"불성립"};
+const PSTATE={satisfied:["✓","ps-ok"],failed:["✗","ps-no"],unknown:["?","ps-unk"]};
 const CATKO = {
   "sql-injection":"SQL 인젝션","nosql-injection":"NoSQL 인젝션","code-injection":"코드 인젝션",
   "command-injection":"명령 주입","path-traversal":"경로 조작","ssti":"서버 템플릿 주입",
@@ -229,6 +242,7 @@ function findingRows(f){
     `<td class="src">${esc(f.source||'SAST')}</td>`;
   const det=document.createElement('tr'); det.className='detail'; det.hidden=true;
   const dyn=f.dynamic?`<div class="kv"><h5>동적 검증</h5><div class="note">${esc(f.dynamic.status)} — ${esc(f.dynamic.evidence||'')}</div></div>`:'';
+  const precos=(f.preconditions&&f.preconditions.length)?`<div class="kv"><h5>성립검증${f.kisa_item?" · "+esc(f.kisa_item):""} <span class="pill exp-${f.exploitability}">${EXPKO[f.exploitability]||f.exploitability}</span></h5><ul class="precos">`+f.preconditions.map(p=>{const m=PSTATE[p.state]||["?","ps-unk"];return `<li class="${m[1]}"><span class="pmark">${m[0]}</span>${p.required?"":"<span class=\"opt\">(참고) </span>"}${esc(p.label)}${p.evidence?` <span class="pev">— ${esc(p.evidence)}</span>`:""}</li>`;}).join("")+`</ul></div>`:"";
   const poc=f.poc?`<h5>재현(PoC) — 그대로 붙여 실행</h5><pre class="code">${esc(f.poc)}</pre>`:'';
   const sup=f.suppressed?`<div class="kv"><h5>억제 사유</h5><div class="note">오탐 억제: ${esc(f.suppress_reason)}</div></div>`:'';
   const isDyn=(f.source||'SAST')!=='SAST';
@@ -240,6 +254,7 @@ function findingRows(f){
       <div class="tags">${(f.cwe||[]).map(c=>`<span class="tag">${esc(c.split(':')[0])}</span>`).join('')}${(f.owasp||[]).map(o=>`<span class="tag">${esc(o.split(' - ')[0])}</span>`).join('')}${(f.compliance||[]).map(c=>`<span class="tag comp">${esc(c)}</span>`).join('')}</div></div>
     <div>${f.message?`<div class="kv"><h5>룰 메시지</h5>${esc(f.message)}</div>`:''}
       ${f.rationale?`<div class="kv"><h5>판정 근거</h5>${esc(f.rationale)}</div>`:''}
+      ${precos}
       ${f.evidence?`<div class="kv"><h5>증거</h5><code>${esc(f.evidence)}</code></div>`:''}
       ${poc}${dyn}${sup}
       ${f.fix?`<div class="kv"><h5>수정 방안</h5>${esc(f.fix)}</div>`:''}</div>

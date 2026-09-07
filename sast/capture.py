@@ -11,7 +11,7 @@
 import base64, csv, json, os, re, zipfile
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse, parse_qsl
-from .schema import new_finding, fingerprint
+from .schema import new_finding, fingerprint, categorize
 from .engines import secrets_engine
 
 # ── 캡처 파서: Burp items XML / HAR → 공통 Exchange 레코드 ──────────────
@@ -73,7 +73,12 @@ def _parse_har(path):
     for e in doc.get("log", {}).get("entries", []):
         req = e.get("request", {}); resp = e.get("response", {})
         rqh = {h["name"].lower(): h["value"] for h in req.get("headers", [])}
-        rsh = {h["name"].lower(): h["value"] for h in resp.get("headers", [])}
+        # 응답 헤더를 Burp 와 동일한 텍스트 블록으로 직렬화(첫 줄=상태줄, _headers 가 그 줄은 건너뜀).
+        # 리스트로 만들어 중복 Set-Cookie 를 보존한다.
+        rsh_hdrs = resp.get("headers", []) or []
+        _sl = ["HTTP/1.1 " + str(resp.get("status", ""))]
+        _sl += [f'{h.get("name", "")}: {h.get("value", "")}' for h in rsh_hdrs]
+        rsh_text = chr(10).join(_sl) if rsh_hdrs else ""
         rqb = (req.get("postData") or {}).get("text", "")
         content = resp.get("content", {}) or {}
         rsb = content.get("text", "") or ""
@@ -82,7 +87,7 @@ def _parse_har(path):
                 rsb = base64.b64decode(rsb).decode("utf-8", "replace")
             except Exception:
                 pass
-        exs.append(_mk(req.get("method", ""), req.get("url", ""), rqh, rqb, "", "", rsb,
+        exs.append(_mk(req.get("method", ""), req.get("url", ""), rqh, rqb, "", rsh_text, rsb,
                        str(resp.get("status", "")), content.get("mimeType", "")))
     return exs
 
@@ -108,6 +113,84 @@ def parse(path):
     if head[:1] == b"{":
         return _parse_har(path)
     return _parse_burp(path)
+
+
+# ── Burp Scanner 이슈 export(XML) → finding (스캐너 확정 = 동적확증) ──────────
+_BURP_SEV = {"high": "high", "medium": "medium", "low": "low",
+             "information": "info", "info": "info"}
+# confidence → (신뢰점수, verdict)
+_BURP_CONF = {"certain": (0.95, "true_positive"), "firm": (0.8, "true_positive"),
+              "tentative": (0.5, "needs_review")}
+_CWE_RE = re.compile(r"CWE-(\d+)", re.I)
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(s):
+    return re.sub(r"\s+", " ", _TAG_RE.sub(" ", s or "")).strip()
+
+
+def is_burp_issues(path):
+    """Burp Scanner 이슈 export XML 인가? (프록시 items=<items> 와 구분: 스캐너=<issues>)."""
+    try:
+        if path.lower().endswith((".har", ".json")):
+            return False
+        head = open(path, "rb").read(4096)
+    except OSError:
+        return False
+    return b"<issues" in head or b"DOCTYPE issues" in head
+
+
+def parse_burp_issues(path):
+    """Burp Scanner 이슈 export → (findings, exchanges).
+    각 이슈를 finding 으로(스캐너가 검증한 확정이므로 confidence=Certain/Firm 이면 동적확증),
+    requestresponse 는 엔드포인트 인벤토리·5단계 증거용 exchange 로 뽑는다."""
+    root = ET.parse(path).getroot()
+    findings, exs, seen = [], [], set()
+    for it in root.findall("issue"):
+        name = (it.findtext("name") or "Burp issue").strip()
+        sev = _BURP_SEV.get((it.findtext("severity") or "").strip().lower(), "info")
+        conf = (it.findtext("confidence") or "Firm").strip().lower()
+        cscore, verdict = _BURP_CONF.get(conf, (0.7, "needs_review"))
+        host = (it.findtext("host") or "").strip()
+        pth = (it.findtext("path") or "").strip()
+        loc = (it.findtext("location") or pth).strip()
+        url = (host.rstrip("/") + pth) if host else loc
+        itype = (it.findtext("type") or "").strip()
+        vclass = it.findtext("vulnerabilityClassifications") or ""
+        cwe_list = sorted({"CWE-" + m for m in _CWE_RE.findall(vclass + " " + name)})
+        detail = _strip_html(it.findtext("issueDetail") or it.findtext("issueBackground") or "")
+        fix = _strip_html(it.findtext("remediationDetail") or it.findtext("remediationBackground") or "")
+        bg = _strip_html(it.findtext("issueBackground") or "")
+        cat = categorize(name + " " + itype, cwe_list)
+
+        poc = ""
+        rr = it.find("requestresponse")
+        if rr is not None:
+            reqel, respel = rr.find("request"), rr.find("response")
+            req = _b64(reqel); resp = _b64(respel)
+            if req:
+                rqh, rqb = _split(req); rsh, rsb = _split(resp)
+                method = (reqel.get("method") if reqel is not None else "") or                          (req.split(" ", 1)[0] if req else "GET")
+                exs.append(_mk(method, url, _headers(rqh), rqb, resp, rsh, rsb, "", ""))
+                poc = req.split(chr(10)+chr(10), 1)[0][:400]      # 요청 헤더부(복붙 재현)
+
+        fp = fingerprint("burp-" + itype, name, 0, loc)
+        if fp in seen:
+            continue
+        seen.add(fp)
+        f = new_finding(
+            fingerprint=fp, engines=["burp"], rule=name[:60], full_rule="burp:" + itype,
+            pack="burp-scan", category=cat, severity=sev, sev_lock=True,
+            source="BURP", confidence=cscore, verdict=verdict,
+            file=url or loc, line=0, cwe=cwe_list,
+            message=("[Burp] " + name + " — " + loc)[:200],
+            evidence=(detail[:400] or ("Burp confidence: " + conf)),
+            poc=poc, fix=fix[:400], rationale=(bg[:300] or "Burp Scanner 검증 이슈."))
+        if verdict == "true_positive":
+            f["dynamic"] = {"status": "confirmed",
+                            "evidence": ("Burp Scanner " + conf + " — " + name + " @ " + loc)[:200]}
+        findings.append(f)
+    return findings, exs
 
 
 # ── 요청 바디 파라미터 파싱 (urlencoded / JSON / 봉투형 JSON) ──────────
@@ -303,9 +386,6 @@ def passive_scan(exs):
 
     for ex in exs:
         rsh = _headers(ex["resp_headers"]) if ex["resp_headers"] else {}
-        # HAR 은 resp_headers 를 텍스트로 안 넣음 → dict 직접 처리
-        if not rsh and isinstance(ex.get("resp_headers"), str) and not ex["resp_headers"]:
-            rsh = {}
         body = ex["resp_body"] or ""
         is_html = "html" in (ex["mime"] or "").lower() or "text/html" in (rsh.get("content-type", ""))
         url = ex["url"]

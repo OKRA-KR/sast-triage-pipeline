@@ -112,18 +112,31 @@ def cmd_scan(a):
     if cap:
         if not os.path.isfile(cap):
             print(f"[!] 캡처 파일 없음: {cap}"); return 2
-        print(f"[*] 패시브 분석: {cap}  (오프라인 · 패킷 0 · 환경: {env.mode_label()})")
-        try:
-            exs = capture.parse(cap)
-        except Exception as e:
-            print(f"[!] 캡처 파싱 실패: {e}"); return 2
-        inv = capture.endpoints(exs)
+        if capture.is_burp_issues(cap):        # Burp Scanner 이슈 export → finding 병합
+            print(f"[*] Burp 스캐너 이슈 파싱: {cap}  (오프라인 · 스캐너 확정=동적확증)")
+            try:
+                bfindings, exs = capture.parse_burp_issues(cap)
+            except Exception as e:
+                print(f"[!] Burp 이슈 파싱 실패: {e}"); return 2
+            findings = findings + bfindings
+            conf = sum(1 for f in bfindings if (f.get("dynamic") or {}).get("status") == "confirmed")
+            print(f"[*] Burp 이슈 {len(bfindings)}건 병합(동적확증 {conf} · Tentative→검토대상)")
+            engines = engines or ["burp"]
+            layers.append("burp-issues")
+        else:
+            print(f"[*] 패시브 분석: {cap}  (오프라인 · 패킷 0 · 환경: {env.mode_label()})")
+            try:
+                exs = capture.parse(cap)
+            except Exception as e:
+                print(f"[!] 캡처 파싱 실패: {e}"); return 2
+            findings = findings + capture.passive_scan(exs)
+            engines = engines or ["passive"]
+            layers.append("passive")
+        inv = capture.endpoints(exs)                # 엔드포인트 인벤토리(공통)
         capture.write_endpoints_csv(inv, os.path.join(out, "endpoints.csv"))
         print(f"[*] 엔드포인트 {len(inv)}개 식별 → {out}/endpoints.csv")
-        findings = findings + capture.passive_scan(exs)
-        layers.append("passive")
-        if not engines:
-            engines = ["passive"]
+        if capture.is_burp_issues(cap):            # Burp 응답에도 OKRA 고유 secrets/PII 적용
+            findings = findings + capture.passive_scan(exs)
         # 캡처의 엔드포인트를 겨냥한 능동 점검(패킷 전송 → 인가 전용, 옵트인). 세션은 best-effort(접근되는대로)
         if run_active:
             base = verify_url or (exs and f"{exs[0]['scheme']}://{exs[0]['host']}") or ""
@@ -152,6 +165,18 @@ def cmd_scan(a):
                     verify_urls.append(h["base"])
             print(f"[*] recon: 점검 대상 {len(verify_urls)}개(원본+라이브 하위도메인) → subdomains.txt·live.csv")
             layers.append("recon")
+            # 패시브: Wayback 과거 URL → urls.txt + recon_endpoints.csv(엔드포인트 인벤토리)
+            if getattr(a, "recon_passive", False):
+                _reg, wb = recon.passive_urls(verify_url)
+                if wb:
+                    try:
+                        with open(os.path.join(out, "urls.txt"), "w", encoding="utf-8") as f:
+                            f.write("\n".join(sorted(wb)))
+                    except OSError as e:
+                        print(f"[!] recon: urls.txt 기록 실패 — {e}")
+                    inv = recon.wayback_endpoints(wb)
+                    capture.write_endpoints_csv(inv, os.path.join(out, "recon_endpoints.csv"))
+                    print(f"[*] recon: Wayback URL {len(wb)}개 → urls.txt, 엔드포인트 {len(inv)}개 → recon_endpoints.csv")
 
         base_cookie = os.environ.get("SAST_HTTP_COOKIE")   # 호스트 간 세션 누수 방지용 스냅샷
         all_eps = []
@@ -206,17 +231,18 @@ def cmd_scan(a):
         if have_repo and exs:                       # P2: SAST↔캡처 상관(도달확인/확증)
             correlate.apply(findings, exs); layers.append("correlate")
         playbook.enrich(findings)                   # 공격구문/조치 부여(오프라인)
+        # ── 5단계: 성립검증(오프라인 결정론 우선; LLM 있으면 코드조건만 보강) ──
+        findings = layer2.triage(findings, exs=exs, root=(target if have_repo else None)); layers.append("exploit-check")
         layers.append("triage")
     elif findings:
         print("[*] 오프라인 트리아지 OFF")
 
-    # ── 2·3계층: LLM 정오탐 판별 + 심화 (개방망·LLM 설정 시만; 폐쇄망이면 자동 skip) ──
+    # ── 3계층: LLM 심화(확증건 PoC/조치 생성) — 개방망·LLM 설정 시만 ──
     if findings and env.layer2_enabled():
-        print(f"[*] 2·3계층(LLM) — {env.mode_label()} · 대상 {len([f for f in findings if not f.get('suppressed')])}건")
-        findings = layer2.triage(findings); layers.append("llm-triage")
+        print(f"[*] 3계층(LLM 심화) — {env.mode_label()}")
         findings = layer3.deepen(findings); layers.append("llm-deepen")
     elif findings:
-        print("[*] 2·3계층(LLM) OFF — LLM 미설정(SAST_LLM_ENDPOINT/SAST_LLM_KEY). 1계층 결과로 완결.")
+        print("[*] 3계층(LLM 심화) OFF — LLM 미설정. 2계층 성립검증 결과로 완결.")
 
     if oob_listener is not None:
         oob_listener.stop()
@@ -244,7 +270,7 @@ def main(argv=None):
     sc.add_argument("--no-triage", action="store_true", help="1계층 오프라인 트리아지 끄기")
     sc.add_argument("--verify", default=None, metavar="URL", help="블랙박스: 라이브 URL 점검(수동)")
     sc.add_argument("--capture", default=None, metavar="FILE",
-                    help="패시브 분석: Burp items XML/HAR 캡처(오프라인, 패킷0) → 엔드포인트 CSV+취약점")
+                    help="패시브 분석: Burp items XML/HAR 캡처 또는 Burp Scanner 이슈 export XML(오프라인, 패킷0)")
     sc.add_argument("--active", action="store_true", help="경량 능동 DAST(내장, 인가 전용)")
     sc.add_argument("--full", action="store_true",
                     help="능동 DAST(전체 role) + 2·3계층(LLM 트리아지/심화)까지 — LLM 설정 시")
@@ -255,7 +281,7 @@ def main(argv=None):
     sc.add_argument("--recon", action="store_true",
                     help="정찰 통합: 대상 URL 의 등록가능 도메인 하위 하위도메인 열거→라이브 호스트를 자동으로 점검대상에 합류(원스텝)")
     sc.add_argument("--recon-passive", action="store_true",
-                    help="recon 시 crt.sh(공개 CT) 조회까지 — 대상 도메인명이 외부로 나감(기본 OFF)")
+                    help="패시브 소스까지: crt.sh(CT)+Wayback 과거URL+DoH 리졸버 — 타깃 무접촉이나 도메인명이 제3자로 나감(기본 OFF)")
     sc.add_argument("--recon-wordlist", default=None, metavar="FILE",
                     help="recon 하위도메인 사전 파일(줄당 1개, 내장 사전에 추가)")
     sc.add_argument("--recon-same-port", action="store_true",
