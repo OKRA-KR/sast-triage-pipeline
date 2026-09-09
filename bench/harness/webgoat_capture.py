@@ -4,7 +4,7 @@
 SPA(WebGoat)는 레슨이 Angular 라우팅으로 동적 로드돼 크롤이 못 닿는다. 이 하네스는:
   1) 로그인(세션 프라이밍)  2) lessonmenu 로 레슨 열거  3) 각 레슨 HTML(예측 URL)에서
   공격 폼(action+필드) 추출  4) 그 엔드포인트로 정상 요청 전송(트래픽 생성)  5) 전부 HAR 로 기록.
-결과 HAR 를 `./okra webgoat.har --1layer` 로 스캔하면 replay 가 레슨 파라미터에 payload 주입.
+결과 HAR 를 `./okra webgoat.har --active` 로 스캔하면 replay 가 레슨 파라미터에 payload 주입.
 
 stdlib only. 인가된 로컬 훈련 타깃 전용.
 사용: python3 bench/tools/webgoat_capture.py [base] [user] [pass] [out.har]
@@ -128,4 +128,4 @@ if __name__ == "__main__":
     json.dump({"log": {"version": "1.2", "creator": {"name": "okra-webgoat-capture"}, "entries": ENTRIES}},
               open(OUT, "w", encoding="utf-8"), ensure_ascii=False)
     print(f"[*] HAR 저장: {OUT} · 요청 {len(ENTRIES)}건")
-    print(f"    스캔: ./okra {OUT} --1layer")
+    print(f"    스캔: ./okra {OUT} --active")

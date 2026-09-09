@@ -109,12 +109,18 @@
       "ref": "auth-and-access.md, waf-bypass.md#开放重定向"
     },
     "hardcoded-secret": {
-      "detect": "JWT alg=none·RS256→HS256 혼동·약한시크릿·미검증서명·jku/jwk/kid 주입",
-      "poc": "alg:none 서명제거 | 키혼동 공개키로 HS256 서명 | 약한시크릿 flask-unsign/hashcat -m 16500 | kid 경로traversal ../../dev/null | jku 공격자 JWKS",
-      "waf_bypass": "헤더 alg 대소문자/공백, 중첩 JWT, none/None/nOne",
-      "confirm": "위조 토큰으로 인증/권한 획득",
-      "mitigate": "서명검증 강제·alg 고정, 강한시크릿, 공개키 노출금지, kid 화이트리스트",
-      "ref": "auth-jwt.md, waf-bypass.md#jwt"
+      "detect": "소스/JS 번들/응답/VCS 히스토리서 키 포맷(AKIA·ghp_·AIza·xox[bp]·PEM 개인키·JDBC 비번·JWT) 노출 — 엔트로피/구조 검증으로 확정",
+      "poc": "(인가범위) 유출 자격증명을 해당 서비스에 인증 시도해 유효성 확인 — GitHub: curl -H 'Authorization: token <ghp_..>' api.github.com/user | AWS: aws sts get-caller-identity | DB URI 직접 접속. JWT면 alg=none/키혼동(flask-unsign, hashcat -m 16500)도 시도",
+      "confirm": "그 자격증명으로 인증 성공·계정/리소스 접근되면 라이브 시크릿 확정",
+      "mitigate": "즉시 폐기·회전, VCS 히스토리서 제거(git filter-repo/BFG), 시크릿 매니저·환경변수로 이관, 최소권한·노출경로 차단",
+      "ref": "secrets-and-creds.md, auth-jwt.md#jwt"
+    },
+    "sensitive-data": {
+      "detect": "응답/로그/JS 에 평문 규제정보 노출 — 주민번호(체크섬)·카드(Luhn)·여권·연락처·이메일",
+      "poc": "(비파괴) 노출 위치·범위 수집 — 무인증 또는 권한초과로 평문 PII 가 응답에 반환되는지 확인(오탐 억제는 검증로직이 담당)",
+      "confirm": "인증 없이/권한초과로 규제 개인정보가 응답 본문에 포함",
+      "mitigate": "마스킹·암호화, 접근통제, 최소수집, 로그·캐시서 제거 (개인정보보호법 고유식별정보·ISMS-P)",
+      "ref": "auth-and-access.md"
     },
     "info-disclosure": {
       "detect": "/.git/HEAD · /.env · /actuator/env · /server-status · source map .map · /swagger·/api-docs",

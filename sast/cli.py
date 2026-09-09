@@ -1,9 +1,14 @@
 """SAST+DAST CLI 진입점.
 
-인자 자동판별: 폴더=소스(SAST) · http(s)=URL(DAST recon) · 파일=캡처(패시브). 여러 개 동시 가능.
-  python3 -m sast scan <폴더|URL|캡처> ... --out <dir> [--active] [--online]
-흐름: 1계층(오프라인 룰+트리아지, 패킷0) → (있으면) 상관분석 → 2·3계층(LLM, --online+설정 시만).
-안전: 능동 DAST(패킷 전송)는 --active/--okra 로만(인가 대상 전용). 기본은 오프라인/비파괴.
+입력(축①): 폴더=소스(SAST) · http(s)=URL(DAST) · 파일=캡처(패시브). positional 로 자동판별, 여러 개 동시 가능.
+  python3 -m sast scan <폴더|URL|캡처> ... --out <dir> [--active | --full | --domain]
+점검 깊이(축②) — 세 모드:
+  (없음)   안전 패시브: 능동 프로브 0·LLM 0 (기본, 비파괴)
+  --active 능동 DAST + 오프라인 트리아지 + recon(하위도메인 정찰). LLM OFF, 폐쇄망 자립
+  --full   --active + LLM 2·3계층 심화 (LLM 설정 시)
+  --domain --active 를 이 도메인 하나만(recon OFF). 단일 호스트 점검
+흐름: 1계층(오프라인 룰+트리아지, 패킷0) → (있으면) 상관분석 → 2·3계층(LLM, --full+설정 시만).
+안전: 능동 DAST(패킷 전송)는 --active/--full/--domain 로만(인가 대상 전용).
 """
 import argparse, os, re, sys
 from .engines import run_all
@@ -11,10 +16,11 @@ from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra
 
 
 def _classify(a):
-    """positional 인자 + 명시 플래그를 폴더(repo)/URL(verify)/캡처파일로 자동 분류."""
+    """positional 인자를 폴더(repo)/URL(verify)/캡처파일로 자동 분류.
+    명시 플래그는 제거(축① 정리) — 하위호환용 env(SAST_VERIFY_URL/SAST_CAPTURE)만 남긴다."""
     repo = None
-    verify = a.verify or os.environ.get("SAST_VERIFY_URL")
-    cap = a.capture or os.environ.get("SAST_CAPTURE")
+    verify = getattr(a, "verify", None) or os.environ.get("SAST_VERIFY_URL")
+    cap = getattr(a, "capture", None) or os.environ.get("SAST_CAPTURE")
     for t in (a.targets or []):
         if re.match(r"https?://", t, re.I):
             verify = verify or t
@@ -61,11 +67,33 @@ def _name_of(repo, verify, cap):
     return "scan"
 
 
+def _apply_mode(a):
+    """점검 깊이(축②)를 세 모드로 통일 — 여기 한곳에서만 정의한다.
+      --active : 능동 DAST + 오프라인 트리아지 + recon(하위도메인 정찰). LLM OFF.
+      --full   : --active + LLM(2·3계층). SAST_ONLINE=1, NO_LLM 해제.
+      --domain : 능동 DAST + 오프라인 트리아지, 이 도메인 하나만(recon OFF). LLM OFF.
+      (셋 다 아님): 능동 프로브 없이 안전 패시브만.
+    반환: run_active(bool). 하위호환 env(SAST_FULL/SAST_ACTIVE/SAST_1LAYER)도 인식한다."""
+    full = a.full or os.environ.get("SAST_FULL")
+    domain = getattr(a, "domain", False)
+    active = a.active or os.environ.get("SAST_ACTIVE") or os.environ.get("SAST_1LAYER")
+    if full:
+        os.environ["SAST_ONLINE"] = "1"          # 2·3계층 게이트(LLM 설정돼 있을 때만 실동작)
+        os.environ.pop("SAST_NO_LLM", None)
+        print(f"[*] --full: 능동 DAST + 오프라인 트리아지 + recon + LLM 심화 ({env.mode_label()})")
+    elif domain:
+        os.environ["SAST_NO_LLM"] = "1"          # 1계층: LLM 계층 강제 OFF
+        os.environ["SAST_NO_RECON"] = "1"        # 단일 도메인: 하위도메인 정찰 OFF
+        print("[*] --domain: 능동 DAST + 오프라인 트리아지 (단일 도메인 · recon OFF · LLM OFF)")
+    elif active:
+        os.environ["SAST_NO_LLM"] = "1"          # 1계층: LLM 계층 강제 OFF(폐쇄망 자립)
+        print("[*] --active: 능동 DAST + 오프라인 트리아지 + recon (LLM OFF)")
+    return bool(full or domain or active)
+
+
 def cmd_scan(a):
     out = os.path.abspath(a.out)
     os.makedirs(out, exist_ok=True)
-    if a.online:
-        os.environ["SAST_ONLINE"] = "1"
     if getattr(a, "insecure", False):
         os.environ["SAST_INSECURE_TLS"] = "1"
         print("[!] TLS 인증서 검증 비활성(--insecure) — MITM/위조응답 위험, 인가 폐쇄망 전용")
@@ -82,14 +110,8 @@ def cmd_scan(a):
         print(f"[*] 입력 인식: {', '.join(kinds)}")
 
     findings, engines, layers = [], [], []
-    full = a.full or os.environ.get("SAST_FULL")
-    onelayer = getattr(a, "onelayer", False) or os.environ.get("SAST_1LAYER")
-    if onelayer:
-        os.environ["SAST_NO_LLM"] = "1"              # 1계층: LLM(2·3계층) 강제 OFF
-        print("[*] 1계층 모드 — 능동 DAST + 오프라인 트리아지, LLM 계층 OFF")
-    if full:
-        os.environ["SAST_ONLINE"] = "1"              # full: 2·3계층(LLM)까지
-    run_active = a.active or full or onelayer or os.environ.get("SAST_ACTIVE")
+    run_active = _apply_mode(a)                      # 축② 깊이(--active/--full)를 한곳에서 해석
+    endpoints_all, recon_live, recon_subs = [], [], {}   # 결과 워크북(Endpoints·Recon 시트)용 수집
     oob_listener = None
     if a.oob or os.environ.get("SAST_OOB"):
         from . import oob as _oobmod
@@ -132,9 +154,7 @@ def cmd_scan(a):
             findings = findings + capture.passive_scan(exs)
             engines = engines or ["passive"]
             layers.append("passive")
-        inv = capture.endpoints(exs)                # 엔드포인트 인벤토리(공통)
-        capture.write_endpoints_csv(inv, os.path.join(out, "endpoints.csv"))
-        print(f"[*] 엔드포인트 {len(inv)}개 식별 → {out}/endpoints.csv")
+        endpoints_all += capture.endpoints(exs)     # 엔드포인트 인벤토리(공통) → 결과 워크북으로
         if capture.is_burp_issues(cap):            # Burp 응답에도 OKRA 고유 secrets/PII 적용
             findings = findings + capture.passive_scan(exs)
         # 캡처의 엔드포인트를 겨냥한 능동 점검(패킷 전송 → 인가 전용, 옵트인). 세션은 best-effort(접근되는대로)
@@ -152,20 +172,24 @@ def cmd_scan(a):
     # ── Track B : 블랙박스 (라이브 URL, --recon 시 하위도메인으로 확장) ──
     if verify_url and not os.environ.get("SAST_NO_VERIFY"):
         verify_urls = [verify_url]
-        # --recon: 등록가능 도메인 하위 하위도메인 열거 → 라이브 호스트를 점검대상에 합류(원스텝)
-        if getattr(a, "recon", False) or os.environ.get("SAST_RECON"):
+        # recon(OSINT): --active/--full 이면 기본 ON — 하위도메인 열거→라이브 호스트를 점검대상에 합류(원스텝).
+        #   끄기: --no-recon(또는 SAST_NO_RECON). 패시브 소스(crt.sh/Wayback)는 도메인이 제3자로 나가므로 --recon-passive 로만.
+        do_recon = (not getattr(a, "no_recon", False) and not os.environ.get("SAST_NO_RECON")
+                    and (getattr(a, "recon", False) or run_active or os.environ.get("SAST_RECON")))
+        if do_recon:
             subs, live = recon.discover(
                 verify_url, wordlist=getattr(a, "recon_wordlist", None),
                 passive=getattr(a, "recon_passive", False),
                 threads=int(os.environ.get("SAST_RECON_THREADS", "40")),
                 same_port=getattr(a, "recon_same_port", False))
+            recon_subs, recon_live = subs, live         # 결과 워크북 Recon 시트로
             recon.write_reports(subs, live, out)
             for h in live:
                 if h["base"] not in verify_urls:
                     verify_urls.append(h["base"])
-            print(f"[*] recon: 점검 대상 {len(verify_urls)}개(원본+라이브 하위도메인) → subdomains.txt·live.csv")
+            print(f"[*] recon: 점검 대상 {len(verify_urls)}개(원본+라이브 하위도메인 {len(live)}) · 정찰 해석 {len(subs)}개")
             layers.append("recon")
-            # 패시브: Wayback 과거 URL → urls.txt + recon_endpoints.csv(엔드포인트 인벤토리)
+            # 패시브(옵트인): Wayback 과거 URL → urls.txt + 엔드포인트 인벤토리(결과 워크북에 합류)
             if getattr(a, "recon_passive", False):
                 _reg, wb = recon.passive_urls(verify_url)
                 if wb:
@@ -174,12 +198,10 @@ def cmd_scan(a):
                             f.write("\n".join(sorted(wb)))
                     except OSError as e:
                         print(f"[!] recon: urls.txt 기록 실패 — {e}")
-                    inv = recon.wayback_endpoints(wb)
-                    capture.write_endpoints_csv(inv, os.path.join(out, "recon_endpoints.csv"))
-                    print(f"[*] recon: Wayback URL {len(wb)}개 → urls.txt, 엔드포인트 {len(inv)}개 → recon_endpoints.csv")
+                    endpoints_all += recon.wayback_endpoints(wb)
+                    print(f"[*] recon: Wayback URL {len(wb)}개 → urls.txt (엔드포인트 인벤토리에 합류)")
 
         base_cookie = os.environ.get("SAST_HTTP_COOKIE")   # 호스트 간 세션 누수 방지용 스냅샷
-        all_eps = []
         for vu in verify_urls:
             if base_cookie is not None:
                 os.environ["SAST_HTTP_COOKIE"] = base_cookie
@@ -193,30 +215,28 @@ def cmd_scan(a):
             # 도메인만 줘도: 크롤 → (로그인 되면 인증 재크롤: 레슨/JS API 도달) → replay role 엔진
             if run_active and not cap:
                 print("[!] 능동 DAST(URL 크롤→replay) — 인가된 대상에만!")
-                exs_url, npg, nfm = active.crawl_exchanges(vu)         # 1차: 로그인 폼 발견용
+                exs_url, npg, nfm, bleaks = active.crawl_exchanges(vu)  # 1차: 로그인 폼 발견용(+본문 누수)
                 sess_a, sess_b = login.build_sessions(exs_url)         # 자격증명/캡처추출로 로그인
                 if sess_a and sess_a.cookie and not str(sess_a.cookie).startswith("Bearer "):
                     os.environ["SAST_HTTP_COOKIE"] = sess_a.cookie
                     print("[*] 로그인 세션으로 인증 재크롤 — 로그인 뒤 페이지·JS API 도달")
-                    aexs, anpg, anfm = active.crawl_exchanges(vu)      # 2차: 인증 상태 재크롤
+                    aexs, anpg, anfm, ableaks = active.crawl_exchanges(vu)   # 2차: 인증 상태 재크롤
                     if len(aexs) >= len(exs_url):                      # 인증 크롤이 더 찾았을 때만 채택
-                        exs_url, npg, nfm = aexs, anpg, anfm
+                        exs_url, npg, nfm, bleaks = aexs, anpg, anfm, ableaks
                     else:
                         print(f"[*] 인증 재크롤 {len(aexs)}건 ≤ 비인증 {len(exs_url)}건 — 비인증 결과 유지")
-                all_eps += capture.endpoints(exs_url)
+                endpoints_all += capture.endpoints(exs_url)
+                findings = findings + bleaks                           # A: 로드 본문서 식별한 취약정보 합류
                 findings = _run_active(exs_url, findings, require_session=False,
                                        oob=oob_listener, presession=(sess_a, sess_b))
                 for _l in ("crawl", "replay"):
                     if _l not in layers:
                         layers.append(_l)
-            if a.okra or os.environ.get("SAST_OKRA") or os.environ.get("SAST_ZAP"):   # OKRA DAST(엔진 ZAP)
+            if os.environ.get("SAST_OKRA") or os.environ.get("SAST_ZAP"):   # OKRA DAST(엔진 ZAP) — 옵트인 env
                 print("[!] OKRA DAST — 인가된 대상에만! spider+active scan + 중요정보 스캔을 수행합니다.")
                 findings = okra.scan(vu, findings, out_dir=out)
                 if "okra-dast" not in layers:
                     layers.append("okra-dast")
-        if all_eps:
-            capture.write_endpoints_csv(all_eps, os.path.join(out, "endpoints.csv"))
-            print(f"[*] 엔드포인트 식별 {len(all_eps)}개 → {out}/endpoints.csv")
         if base_cookie is not None:
             os.environ["SAST_HTTP_COOKIE"] = base_cookie
         else:
@@ -224,7 +244,7 @@ def cmd_scan(a):
 
     # ── 1계층 마무리: 오프라인 트리아지 (외부통신 0 — 폐쇄망서도 자립 완결) ──
     # 입력이 소스/URL/캡처 무엇이든, 모인 모든 발견에 동일하게 적용된다.
-    if findings and not (a.no_triage or os.environ.get("SAST_NO_TRIAGE")):
+    if findings and not os.environ.get("SAST_NO_TRIAGE"):
         rules = triage.load_rules()
         triage.apply(findings, rules)               # 억제/심각도(sev_lock 존중)
         crossval.apply(findings, rules)             # taint 엔진 없으면 자동 no-op
@@ -246,6 +266,18 @@ def cmd_scan(a):
 
     if oob_listener is not None:
         oob_listener.stop()
+
+    # ── 결과 인벤토리 워크북: <name>_result.xlsx (Endpoints + Recon + Exposure 3시트, 파일명에 도메인) ──
+    if endpoints_all or recon_live or findings:
+        if run_active and verify_url:               # 능동 모드: 상태코드 보강 + 404 완전불가 제외
+            endpoints_all = active.enrich_status(endpoints_all)
+        _EXPO = {"hardcoded-secret", "sensitive-data", "info-disclosure"}   # 로드 본문 누수(A)
+        exposure = [f for f in findings if f.get("category") in _EXPO and not f.get("suppressed")]
+        wb = report.write_result_workbook(name, out, endpoints_all, recon_live, recon_subs, exposure=exposure)
+        if wb:
+            print(f"[*] 결과 워크북 → {os.path.basename(wb['path'])}  "
+                  f"(Endpoints {wb['endpoints']} · Recon {wb['recon']} · Exposure {wb['exposure']})")
+
     src = target if have_repo else (verify_url or cap or "")
     truncated = replay.truncated[0] or active.truncated[0]
     res = report.build(name, src, engines or ["blackbox"], findings, out,
@@ -266,20 +298,18 @@ def main(argv=None):
                     help="대상(여러 개 가능): 폴더=소스 · http(s)=URL · 파일=캡처. 자동 판별.")
     sc.add_argument("--out", required=True, help="결과 출력 폴더")
     sc.add_argument("--name", default=None, help="표시 이름(기본: 폴더명/호스트)")
-    sc.add_argument("--online", action="store_true", help="개방망: 2·3계층(LLM) 활성화")
-    sc.add_argument("--no-triage", action="store_true", help="1계층 오프라인 트리아지 끄기")
-    sc.add_argument("--verify", default=None, metavar="URL", help="블랙박스: 라이브 URL 점검(수동)")
-    sc.add_argument("--capture", default=None, metavar="FILE",
-                    help="패시브 분석: Burp items XML/HAR 캡처 또는 Burp Scanner 이슈 export XML(오프라인, 패킷0)")
-    sc.add_argument("--active", action="store_true", help="경량 능동 DAST(내장, 인가 전용)")
-    sc.add_argument("--full", action="store_true",
-                    help="능동 DAST(전체 role) + 2·3계층(LLM 트리아지/심화)까지 — LLM 설정 시")
-    sc.add_argument("--1layer", dest="onelayer", action="store_true",
-                    help="1계층만: 능동 DAST(전체 role) + 오프라인 트리아지, LLM 계층 강제 OFF(폐쇄망)")
-    sc.add_argument("--okra", "--zap", dest="okra", action="store_true",
-                    help="OKRA DAST(ZAP 엔진 spider+ascan + 중요정보 스캔, 인가 전용)")
+    # ── 축② 점검 깊이 — 세 모드(상호배타). 없으면 안전 패시브. 능동 DAST 는 인가 대상 전용. ──
+    depth = sc.add_mutually_exclusive_group()
+    depth.add_argument("--active", action="store_true",
+                       help="능동 DAST + 오프라인 트리아지 + recon(하위도메인 정찰). LLM OFF, 폐쇄망 자립")
+    depth.add_argument("--full", action="store_true",
+                       help="--active + LLM 2·3계층 심화(LLM 설정 시)")
+    depth.add_argument("--domain", action="store_true",
+                       help="--active 를 이 도메인 하나만(recon OFF). 단일 호스트 점검")
     sc.add_argument("--recon", action="store_true",
-                    help="정찰 통합: 대상 URL 의 등록가능 도메인 하위 하위도메인 열거→라이브 호스트를 자동으로 점검대상에 합류(원스텝)")
+                    help="정찰 강제 ON(패시브 스캔에서도). --active/--full 은 기본 ON — 하위도메인 열거→라이브 호스트를 점검대상에 합류")
+    sc.add_argument("--no-recon", dest="no_recon", action="store_true",
+                    help="정찰 OFF: --active/--full 의 기본 recon(하위도메인 열거) 비활성(단일 호스트만)")
     sc.add_argument("--recon-passive", action="store_true",
                     help="패시브 소스까지: crt.sh(CT)+Wayback 과거URL+DoH 리졸버 — 타깃 무접촉이나 도메인명이 제3자로 나감(기본 OFF)")
     sc.add_argument("--recon-wordlist", default=None, metavar="FILE",

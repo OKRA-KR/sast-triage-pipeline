@@ -2,6 +2,20 @@
 
 **여러 현장(인가/폐쇄 환경)에 반입해 쓰는 범용 도구.** 소스를 떨어뜨리면 SAST, 라이브 URL 을 주면 블랙박스.
 
+## 명령어 — 이 3개만 기억하면 됨
+
+URL(도메인) 하나 주고 셋 중 하나를 고른다. 셋 다 능동 DAST(패킷 전송) — **인가 대상 전용**.
+
+| 명령 | 하는 일 | 하위도메인 정찰(recon) | LLM 심화 |
+|---|---|:---:|:---:|
+| `./okra <URL> --active` | 능동 DAST + 오프라인 트리아지 (1계층) | ✅ | ✗ |
+| `./okra <URL> --full`   | `--active` + LLM 2·3계층 심화 | ✅ | ✅ (LLM 설정 시) |
+| `./okra <URL> --domain` | `--active` 를 **이 도메인 하나만** | ✗ (끔) | ✗ |
+
+- **결과**: `out/<name>/<도메인>_result.xlsx` — 3시트: **Endpoints**(경로·상태코드·**민감도**·파라미터·인증) · **Recon**(하위도메인·IP) · **Exposure**(로드 본문서 흘러나온 시크릿·오류·소스맵, 마스킹). (+ `results.json`·`index.html`)
+- 플래그 없이 `./okra <URL>` 만 주면 **안전 패시브**(능동 프로브 0·비파괴). 소스 폴더·캡처 파일도 같은 진입점(자동판별).
+- `--full`/`--active`에서 정찰만 끄려면 `--no-recon`. 즉 `--domain` ≡ `--active --no-recon` 프리셋.
+
 ## 아키텍처 (2 트랙 · 3 계층)
 
 ```
@@ -10,10 +24,10 @@ Track A (Repo 있음)  → SAST
   2계층 [개방망 전용·외부통신]      LLM 트리아지 — 오탐/정탐 판별·근거
   3계층 [개방망 전용·외부통신]      LLM 심화 — 공격구문(PoC)·공격포인트·조치 생성
 Track B (Repo 없음)  → 블랙박스     라이브 URL 엔드포인트 식별 → 공격 가능 포인트 (stdlib, LLM 불필요)
-Track C (캡처 파일)  → 패시브 분석  Burp/HAR 오프라인 파싱 → 엔드포인트 인벤토리(CSV)+취약점 (패킷0)
+Track C (캡처 파일)  → 패시브 분석  Burp/HAR 오프라인 파싱 → 엔드포인트 인벤토리(xlsx)+취약점 (패킷0)
 ```
 
-**환경 게이팅**: 기본 **폐쇄망(offline)** → 1계층만(외부통신 0). `--online`(또는 `SAST_ONLINE=1`) +
+**환경 게이팅**: 기본 **폐쇄망(offline)** → 1계층만(외부통신 0). `--full` +
 LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망에선 LLM 계층이 아예 실행되지 않음.
 
 **하나의 진입점 — 인자를 자동판별**한다: 폴더=소스(SAST) · `http(s)://`=URL(DAST) · 파일=캡처(패시브).
@@ -22,22 +36,23 @@ LLM 설정(`SAST_LLM_KEY`)이 있을 때만 2·3계층이 켜진다. 폐쇄망�
 ./okra ./myapp                               # 소스 SAST (폐쇄망: 1계층만, 패킷0)
 ./okra ./myapp --deep                        # + CodeQL taint
 ./okra https://app.example.com              # URL 점검(안전 recon)
-./okra gparking2                             # 캡처 패시브 → endpoints.csv + 취약점(패킷0)
+./okra gparking2                             # 캡처 패시브 → <도메인>_result.xlsx + 취약점(패킷0)
 ./okra ./myapp https://app.com cap.har       # 소스+URL+캡처 동시 → 상관분석 자동
-./okra ./myapp --online                      # 개방망: 2·3계층(LLM) 시도 (SAST_LLM_* 필요)
+./okra ./myapp --full                        # 개방망: 2·3계층(LLM) 시도 (SAST_LLM_* 필요)
 #  능동 DAST(패킷 전송, 인가 대상 전용). role: 무인증·SQLi·NoSQL·XSS(반사/저장형)·LFI·SSTI·
 #  명령인젝션·SSRF·XXE·오픈리다이렉트·CRLF·CORS·Host헤더·인증부재/우회·IDOR(단일/2계정)
-./okra <도메인> --1layer                          # 1계층: 능동 DAST + 오프라인 트리아지(LLM OFF, 폐쇄망)
-./okra <도메인> --1layer -H 'Authorization: Bearer ..' -H 'X-Api-Key: ..'   # 커스텀 헤더(반복)
-./okra <도메인> --full                            # + 2·3계층(LLM 트리아지/심화)까지 (LLM 설정 시)
+./okra <도메인> --active                          # 능동 DAST + 오프라인 트리아지 + recon(하위도메인) — LLM OFF
+./okra <도메인> --active -H 'Authorization: Bearer ..' -H 'X-Api-Key: ..'   # 커스텀 헤더(반복)
+./okra <도메인> --full                            # --active + 2·3계층(LLM 트리아지/심화) (LLM 설정 시)
 ./okra <도메인> --full   --cookie 'SESSION=..'    # 세션 얹어 인증 상태로
-./okra <캡처>   --1layer                          # 캡처 replay(실요청 기반, 더 정밀)
-./okra <도메인> --okra   --cookie 'PHPSESSID=..'  # OKRA DAST(엔진 OWASP ZAP)
+./okra <도메인> --domain                          # 이 도메인 하나만(하위도메인 정찰 OFF)
+./okra <캡처>   --active                          # 캡처 replay(실요청 기반, 더 정밀)
+SAST_OKRA=1 ./okra <도메인> --active --cookie 'PHPSESSID=..'  # + OKRA DAST(엔진 OWASP ZAP, 옵트인 env)
 #  OOB(blind SSRF/XXE/RCE) — 대상이 내 PC로 역접속 가능해야 확증(콜백주소 자동감지 or 지정):
-SAST_OOB_HOST='<내PC_IP:포트>' ./okra <도메인> --1layer --oob --cookie '..'
+SAST_OOB_HOST='<내PC_IP:포트>' ./okra <도메인> --active --oob --cookie '..'
 #  세션: 자격증명(SAST_LOGIN_USER/PASS 또는 캡처서 자동추출)이 있으면 로그인, 없으면 접근되는 대로.
 #   대상 형태: 폴더 | http(s)URL | Burp/HAR 파일 | gitURL(.git) | owner/repo | targets/폴더명
-#   기본=오프라인·비파괴. 명시 플래그(--verify/--capture)로 강제 지정도 가능(하위호환).
+#   입력은 positional 자동판별(축①). 기본=오프라인·비파괴. 깊이는 --active/--full/--domain 세 모드(축②).
 ```
 
 LLM 계층 설정: `SAST_LLM_KEY`(필수), `SAST_LLM_ENDPOINT`(기본 Anthropic), `SAST_LLM_MODEL`(기본 claude-opus-5).
@@ -86,27 +101,27 @@ SQLi/명령은 taint 데이터흐름 + 이스케이프 sanitizer 인식). 현장
 
 또는 Windows에서 `sast-run.bat` 더블클릭 → 대상 입력.
 
-결과: `out/<name>/results.json` + `out/<name>/index.html`(더블클릭, 오프라인).
+결과: `out/<name>/results.json` + `out/<name>/index.html`(더블클릭) + `out/<name>/<도메인>_result.xlsx`(Endpoints·Recon·Exposure 3시트, 파일명에 도메인).
 다른 repo 결과는 `dashboard.template.html`에 `results.json`을 **드래그드롭**해서 봄.
 
 ## 계층·트랙 요약
 
 | 구분 | 역할 | 외부통신 | 기본 | 켜기/끄기 |
 |---|---|---|---|---|
-| **1계층** | 룰 4엔진 + 오프라인 트리아지(suppress/crossval) | ✗ (폐쇄망 OK) | on | 엔진별 `SAST_NO_*`, `--deep`(codeql), `--no-triage` |
-| **2계층** | LLM 트리아지 (오탐/정탐 판별) | ✓ | off | `--online` + `SAST_LLM_KEY` |
-| **3계층** | LLM 심화 (PoC/공격포인트/조치) | ✓ | off | `--online` + `SAST_LLM_KEY` |
-| **블랙박스**(Track B) | 라이브 URL 엔드포인트→공격포인트(수동 recon) | ✗ (내부망) | URL 있을 때 | `--verify <URL>` / `SAST_NO_VERIFY=1` |
-| **능동 DAST**(Track B) | URL 크롤→파라미터에 탐지 payload 주입(SQLi/XSS/SSTI/경로/리다이렉트) | ✗ (내부망) | off | `--active` (**인가 대상 전용**) |
-| **OKRA DAST**(Track B) | OWASP ZAP 엔진(spider+AJAX+active scan) + **응답 본문 중요정보(주민번호·카드·토큰) 스캔** | ✗ (내부망, ZAP 반입) | off | `--okra` (**인가 대상 전용**) |
-| **패시브 분석**(Track C) | 캡처(Burp/HAR) 오프라인 파싱 → 엔드포인트 인벤토리(CSV) + 보안헤더·쿠키플래그·응답 중요정보·URL 자격증명·verbose오류·CORS·계정열거·IDOR후보·CSRF부재 | ✓ (**패킷 0**) | off | `--capture <파일>` |
-| **↳ replay 검증**(Track C) | **실제 인증 요청을 재전송**하며 파라미터만 표적 변형 → SQLi(오류/불리언)·XSS(반사)·**권한검증(IDOR/BOLA)** 확증 | ✗ (내부망) | off | `--capture <파일> --active` (**인가 전용**) |
-| **상관분석**(SAST↔캡처) | 정적 발견을 실트래픽으로 대조 → 도달확인(데드코드 오탐↓)·라이브 증상 일치 시 확증 승격 | ✓ (**패킷 0**) | 소스+캡처 동시 | 자동(`--capture` + repo) · 강등은 `SAST_CORR_DEMOTE=1` |
+| **1계층** | 룰 4엔진 + 오프라인 트리아지(suppress/crossval) | ✗ (폐쇄망 OK) | on | 엔진별 `SAST_NO_*`, `--deep`(codeql), `SAST_NO_TRIAGE=1` |
+| **2계층** | LLM 트리아지 (오탐/정탐 판별) | ✓ | off | `--full` + `SAST_LLM_KEY` |
+| **3계층** | LLM 심화 (PoC/공격포인트/조치) | ✓ | off | `--full` + `SAST_LLM_KEY` |
+| **블랙박스**(Track B) | 라이브 URL 엔드포인트→공격포인트(수동 recon) | ✗ (내부망) | URL 있을 때 | URL(positional) / `SAST_NO_VERIFY=1` |
+| **능동 DAST**(Track B) | URL 크롤→파라미터에 탐지 payload 주입(SQLi/XSS/SSTI/경로/리다이렉트) | ✗ (내부망) | off | `--active`/`--full` · recon 자동(--no-recon 로 끔) (**인가 대상 전용**) |
+| **OKRA DAST**(Track B) | OWASP ZAP 엔진(spider+AJAX+active scan) + **응답 본문 중요정보(주민번호·카드·토큰) 스캔** | ✗ (내부망, ZAP 반입) | off | `SAST_OKRA=1` (**인가 대상 전용**) |
+| **패시브 분석**(Track C) | 캡처(Burp/HAR) 오프라인 파싱 → 엔드포인트 인벤토리(xlsx) + 보안헤더·쿠키플래그·응답 중요정보·URL 자격증명·verbose오류·CORS·계정열거·IDOR후보·CSRF부재 | ✓ (**패킷 0**) | off | 캡처파일(positional) |
+| **↳ replay 검증**(Track C) | **실제 인증 요청을 재전송**하며 파라미터만 표적 변형 → SQLi(오류/불리언)·XSS(반사)·**권한검증(IDOR/BOLA)** 확증 | ✗ (내부망) | off | 캡처파일 + `--active` (**인가 전용**) |
+| **상관분석**(SAST↔캡처) | 정적 발견을 실트래픽으로 대조 → 도달확인(데드코드 오탐↓)·라이브 증상 일치 시 확증 승격 | ✓ (**패킷 0**) | 소스+캡처 동시 | 자동(캡처 + repo 동시) · 강등은 `SAST_CORR_DEMOTE=1` |
 
 - **OKRA DAST**: 성숙한 스캔 엔진으로 [OWASP ZAP](https://www.zaproxy.org/)(Apache-2.0)을 구동하고, alert 를 유형별로 집계·정규화한 뒤 **ZAP 이 못 하는 국내 컴플라이언스 중요정보**(주민번호 체크섬·카드 Luhn·PAT·DB 자격증명)를 라이브 응답 본문에서 추가 탐지한다(OKRA 1계층 secrets 엔진 재사용). ZAP 은 오프라인 Java 앱이라 폐쇄망 반입 가능. 엔진 크레딧: OWASP ZAP.
-- **패시브 분석(Track C)**: 현장에서 프록시로 **이미 확보한 캡처**(Burp items XML / HAR)를 오프라인 파싱해 **패킷 한 개도 안 쏘고** ① 대상 엔드포인트 전체를 식별(메서드·경로·파라미터·인증여부·상태변경) → `endpoints.csv`, ② 실제 요청/응답에서 관측되는 취약점을 룰로 탐지한다. 크롤러가 못 찾는 POST API·JS 뒤 파라미터까지 잡히므로, 이 인벤토리를 `--active` 로 그대로 **replay 검증**에 넘길 수 있다. 사내 스캐너 트래픽 제약이 있는 폐쇄망에서 캡처만으로 1계층을 돌리는 핵심 경로.
+- **패시브 분석(Track C)**: 현장에서 프록시로 **이미 확보한 캡처**(Burp items XML / HAR)를 오프라인 파싱해 **패킷 한 개도 안 쏘고** ① 대상 엔드포인트 전체를 식별(메서드·경로·파라미터·인증여부·상태변경·상태코드) → `<도메인>_result.xlsx`(Endpoints 시트), ② 실제 요청/응답에서 관측되는 취약점을 룰로 탐지한다. 크롤러가 못 찾는 POST API·JS 뒤 파라미터까지 잡히므로, 이 인벤토리를 `--active` 로 그대로 **replay 검증**에 넘길 수 있다. 사내 스캐너 트래픽 제약이 있는 폐쇄망에서 캡처만으로 1계층을 돌리는 핵심 경로.
 
-**replay 검증 vs blind 스캐너(ZAP)**: 인증 세션·정확한 바디 파라미터가 필요한 API 중심 앱에서는 ZAP 스파이더가 링크만 blind 크롤해 POST API 를 유효하게 못 때리고(엔드포인트 폭증·세션/파라미터 유실), IDOR 같은 권한검증은 자동으로 불가하다. `--capture --active` 의 replay 는 **캡처에 담긴 진짜 인증 요청을 baseline 으로 재전송**하고 파라미터 하나만 변형하므로 요청이 유효해 싱크에 payload 가 도달한다 — SQLi(오류/불리언 응답차), XSS(마커 반사), **권한검증(IDOR/BOLA: 객체참조 파라미터를 남의 id 로 바꿔 같은 세션 접근 → 200+데이터면 접근통제 실패; 무효 id 대조로 오탐↓)**. 요청수는 적고 정밀도는 높다.
+**replay 검증 vs blind 스캐너(ZAP)**: 인증 세션·정확한 바디 파라미터가 필요한 API 중심 앱에서는 ZAP 스파이더가 링크만 blind 크롤해 POST API 를 유효하게 못 때리고(엔드포인트 폭증·세션/파라미터 유실), IDOR 같은 권한검증은 자동으로 불가하다. 캡처 + `--active` 의 replay 는 **캡처에 담긴 진짜 인증 요청을 baseline 으로 재전송**하고 파라미터 하나만 변형하므로 요청이 유효해 싱크에 payload 가 도달한다 — SQLi(오류/불리언 응답차), XSS(마커 반사), **권한검증(IDOR/BOLA: 객체참조 파라미터를 남의 id 로 바꿔 같은 세션 접근 → 200+데이터면 접근통제 실패; 무효 id 대조로 오탐↓)**. 요청수는 적고 정밀도는 높다.
 
 **인증(로그인) — 싱싱한 세션 + 2계정 IDOR 확증**: 캡처의 세션 쿠키는 만료되면 replay 가 전부 '로그인 리다이렉트'가 되어 취약점을 놓친다. 실행자가 자격증명을 환경변수로 주면 도구가 **직접 로그인**해 세션을 얻고(만료 시 자동 재로그인) replay 에 사용한다. 로그인 요청 형태는 **캡처의 로그인 트래픽에서 자동 추론**(예: `POST /api/auth/login.php` `user_id`/`pwd`). **2계정(A·B)** 을 주면 IDOR 을 후보(needs_review)가 아니라 **확정(true_positive)** 으로 올린다 — 계정 B 세션으로 계정 A 의 요청을 재전송해 B 가 A 의 데이터를 받으면 객체수준 접근통제 실패 확정(민감 `/api/` 읽기 엔드포인트에만, 정적/공개 경로 제외).
 
@@ -114,7 +129,7 @@ SQLi/명령은 taint 데이터흐름 + 이스케이프 sanitizer 인식). 현장
 # 자격증명은 코드/커밋에 없음 — 실행 시 환경변수로만 주입(로그엔 PW 마스킹). 인가 대상 전용.
 export SAST_LOGIN_USER='glnt'   SAST_LOGIN_PASS='****'          # 계정 A(필수)
 export SAST_LOGIN_USER2='corpB' SAST_LOGIN_PASS2='****'         # 계정 B(선택 → IDOR 확정)
-bash sast-run.sh --capture <burp.xml> --active
+bash sast-run.sh <burp.xml> --active
 ```
 
 **무인증 접근 스윕**: replay 는 항상 **첫 패스로 무인증 접근**을 점검한다 — 캡처에서 인증(쿠키)이 있던
@@ -126,17 +141,17 @@ bash sast-run.sh --capture <burp.xml> --active
 export SAST_BRUTE=1  SAST_BRUTE_USER='<대상계정>'               # 둘 다 있어야 실행(대상계정 필수)
 export SAST_BRUTE_WORDLIST=/path/words.txt                      # 선택(없으면 내장 약한비번 사전)
 export SAST_BRUTE_MAX=25                                        # 시도 상한(기본 25)
-bash sast-run.sh --capture <burp.xml> --active
+bash sast-run.sh <burp.xml> --active
 ```
 - **폐쇄망**: 기본값이 offline 이라 2·3계층이 실행조차 안 됨 → 1계층(+선택 블랙박스)만.
-- **개방망**: `--online` + LLM 키가 있어야 2·3계층이 돈다. 하나라도 없으면 자동 건너뜀(안전).
+- **개방망**: `--full` + LLM 키가 있어야 2·3계층이 돈다. 하나라도 없으면 자동 건너뜀(안전).
 - 블랙박스는 LLM 불필요 — 소스가 없거나(Track B) SAST 와 병행해 라이브 확증에 쓴다(GET 전용, 시그니처로 오탐 억제).
 
 ```bash
 # 폐쇄망 SAST + 라이브 블랙박스
-./sast-run.sh WebGoat/WebGoat --deep --verify http://localhost:8080/WebGoat
+./sast-run.sh WebGoat/WebGoat http://localhost:8080/WebGoat --deep
 # 개방망 SAST 1~3계층
-SAST_LLM_KEY=... ./sast-run.sh WebGoat/WebGoat --deep --online
+SAST_LLM_KEY=... ./sast-run.sh WebGoat/WebGoat --deep --full
 ```
 
 ## 이식성 & 폐쇄망 반입 (carry-in kit)
@@ -156,7 +171,7 @@ git clone <repo> && cd sast-draft
 tar --use-compress-program=unzstd -xf sast-kit.tar.zst && cd sast-draft
 export SAST_TOOLS_DIR=$(pwd)/tools     # 엔진·룰·DB 자동 인식
 export SAST_OSV_OFFLINE=1               # osv 오프라인 DB 사용(tools/osv-cache)
-./sast-run.sh <대상> --deep [--verify <URL>]
+./sast-run.sh <대상> [URL] --deep
 ```
 
 반입 키트 구성(`tools/`): `semgrep-rules/`(security 룰만), `osv-scanner`+`osv-cache/`(오프라인 CVE DB),
@@ -187,16 +202,18 @@ sast/                     코어 (stdlib 전용, 오프라인)
   layer2.py               2계층: LLM 트리아지 (개방망 전용)
   layer3.py               3계층: LLM 심화 — PoC/공격포인트/조치 (개방망 전용)
   blackbox.py             Track B: 라이브 URL 엔드포인트→공격포인트, 수동 recon (LLM 불필요)
-  active.py               Track B 경량 능동 DAST: 크롤+payload 주입 (--active, 의존성0)
-  okra.py                 Track B OKRA DAST: OWASP ZAP(Apache-2.0) 구동+alert 정규화 + 응답 본문 중요정보 스캔 (--okra)
-  capture.py              Track C 패시브 분석: Burp/HAR 파싱→엔드포인트 인벤토리(CSV)+오프라인 룰 (--capture, 패킷0)
+  active.py               Track B 경량 능동 DAST: 크롤+payload주입+상태코드+본문누수스캔(_scan_body: 시크릿/오류/소스맵) (--active/--full, 의존성0)
+  recon.py                정찰(OSINT): 하위도메인 열거+crt.sh/Wayback+DoH+라이브 프로빙 (--active/--full 기본 ON · 끄기 --no-recon)
+  okra.py                 Track B OKRA DAST: OWASP ZAP(Apache-2.0) 구동+alert 정규화 + 응답 본문 중요정보 스캔 (SAST_OKRA=1)
+  capture.py              Track C 패시브 분석: Burp/HAR 파싱→엔드포인트 인벤토리+오프라인 룰 (캡처파일, 패킷0)
   correlate.py            SAST↔캡처 상관(P2, IAST-lite): 정적 발견을 실트래픽으로 도달확인/증상확증 (패킷0)
   replay.py               캡처/URL 능동 검증(role): 무인증·SQLi·NoSQL·XSS(반사/저장형)·LFI·SSTI·명령인젝션·SSRF·XXE·오픈리다이렉트·CRLF·CORS·Host헤더·인증부재/우회·IDOR(단일/2계정)
   oob.py                  OOB 콜백 리스너(stdlib): blind SSRF/XXE/RCE 를 역접속으로 확증 (--oob)
   login.py                인증: 캡처서 자격증명 자동추출·CSRF 토큰·JSON/Bearer 로그인·2계정·브루트(사이트 무관)
   login.py                인증 세션(ID/PW→로그인·재로그인·2계정 IDOR) + 로그인 브루트포스(옵트인, 약한자격증명/락아웃 부재)
-  report.py               results.json(sast-results/2) + 대시보드 생성
-  cli.py                  python3 -m sast scan <target> --out <dir> [--online] [--verify URL]
+  report.py               results.json(sast-results/2) + 대시보드 + <도메인>_result.xlsx(Endpoints·Recon·Exposure 3시트)
+  xlsx.py                 최소 XLSX 작성기(stdlib zipfile+xml, 폐쇄망): 다중 시트 결과 워크북
+  cli.py                  python3 -m sast scan <target> --out <dir> [--active | --full | --domain]
 dashboard.template.html   넓은(1400px) 자체완결 뷰어
 sast-run.sh / .bat        실행자 트리거 러너 (clone→scan)
 out/ , targets/           생성물 / 클론 대상 (git 제외)

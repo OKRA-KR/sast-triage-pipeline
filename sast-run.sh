@@ -11,15 +11,16 @@ if [ "$#" -eq 0 ]; then
   cat <<'USAGE'
 사용법: ./sast-run.sh <대상> [<대상> ...] [옵션]
   대상(자동판별): 폴더(소스) | http(s)://URL | Burp/HAR 캡처파일 | gitURL(.git) | owner/repo | targets/폴더명
-  옵션: --deep(CodeQL taint)  --online(LLM 2·3계층)  --active / --okra(능동 DAST, 인가전용)
-        --recon(하위도메인 열거→라이브 호스트까지 원스텝)  --recon-passive(crt.sh)  --recon-same-port
-        --cookie 'PHPSESSID=..'  --insecure(TLS검증끔)  --no-triage
+  깊이: --active(능동DAST+트리아지+recon) | --full(+LLM) | --domain(이 도메인만·recon OFF)   ※없으면 안전 패시브
+  정찰: --recon(하위도메인→라이브 원스텝)  --recon-passive(crt.sh/Wayback)  --recon-same-port
+  기타: --deep(소스 CodeQL taint)  --cookie 'PHPSESSID=..'  -H 'Authorization: Bearer ..'  --insecure(TLS끔)  --oob
 예:
-  ./sast-run.sh ./myapp                              # 소스 SAST
-  ./sast-run.sh https://app.example.com             # URL 점검(안전 recon)
-  ./sast-run.sh gparking2                            # 캡처 패시브(패킷0)
-  ./sast-run.sh ./myapp https://app.com cap.har      # 동시 + 상관분석
-  ./sast-run.sh gparking2 --active --cookie 'PHPSESSID=..'   # 능동(인가 대상 전용)
+  ./sast-run.sh ./myapp                                   # 소스 SAST
+  ./sast-run.sh https://target.example --active           # 능동 DAST + recon(하위도메인), 인가 전용
+  ./sast-run.sh https://target.example --full             # + LLM 심화(SAST_LLM_* 설정 시)
+  ./sast-run.sh https://target.example --domain           # 이 도메인 하나만(recon OFF)
+  ./sast-run.sh gparking2                                 # 캡처 패시브(패킷0)
+  ./sast-run.sh ./myapp https://app.com cap.har --active  # 동시 + 상관분석
 USAGE
   exit 1
 fi
@@ -36,7 +37,7 @@ for a in "$@"; do
   if [ -n "$prev" ]; then PASS+=("$a"); prev=""; continue; fi   # 값 받는 플래그의 값
   case "$a" in
     --deep) export SAST_DEEP=1 SAST_CODEQL_CACHE=1; echo "[*] deep: CodeQL(taint) 포함"; continue ;;
-    -H|--verify|--capture|--cookie|--header|--name|--recon-wordlist) PASS+=("$a"); prev="$a"; continue ;;
+    -H|--cookie|--header|--name|--recon-wordlist) PASS+=("$a"); prev="$a"; continue ;;
     --*|-*) PASS+=("$a"); continue ;;
   esac
   # positional 대상 해석 (clone 만 여기서, 나머지 판별은 CLI 가 자동)

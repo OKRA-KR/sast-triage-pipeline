@@ -4,7 +4,7 @@
 (RCE/파일쓰기 등 파괴형 제외). 크롤 → 파라미터/폼 수집 → 탐지 payload 주입 →
 응답 시그니처(오류/반사/평가/리다이렉트)로 확증. 레이트리밋·요청상한·동일호스트 한정.
 
-끄기: 기본 off. 켜기: --active (또는 SAST_ACTIVE=1) + --verify <URL>.
+끄기: 기본 off. 켜기: --active / --full (또는 SAST_ACTIVE=1) + 대상 URL(positional).
 """
 import os, re, ssl, time, urllib.request, urllib.error
 from html.parser import HTMLParser
@@ -102,10 +102,35 @@ class _Links(HTMLParser):
             self.forms.append(self._f); self._f = None
 
 
+_SOURCEMAP = re.compile(r"sourceMappingURL\s*=\s*([^\s'\"*]+\.map)", re.I)
+_STACK = re.compile(r"(Traceback \(most recent call last\)|\bat [\w.$]+\([\w./\\:-]+:\d+\)|"
+                    r"Exception in thread|\.java:\d+\)|Warning: .*? in .*? on line \d+)")
+
+
+def _scan_body(url, body):
+    """응답 본문(HTML/JS)에서 '로드될 때 흘러나오는' 취약정보를 식별 — 엔드포인트 식별의 짝.
+    중요정보(시크릿/주민번호/카드/토큰)는 secrets 엔진 재사용(마스킹·검증), + SQL오류·스택·소스맵 노출."""
+    from .engines import secrets_engine
+    out = secrets_engine.scan_text(body or "", url, source="DAST-CRAWL")   # 키/PII/토큰(마스킹)
+    if SQL_ERR.search(body or ""):
+        out.append(_finding("info-disclosure", "high", url, "(응답본문)", "",
+                            "응답 본문에 SQL 오류 노출 — 인젝션 정황·DB 정보 유출"))
+    if _STACK.search(body or ""):
+        out.append(_finding("info-disclosure", "medium", url, "(응답본문)", "",
+                            "응답 본문에 스택트레이스/디버그 노출"))
+    m = _SOURCEMAP.search(body or "")
+    if m:
+        out.append(_finding("info-disclosure", "medium", url, "(sourceMappingURL)", m.group(1),
+                            "JS 소스맵 노출 — 원본 소스·로직·주석 복원 가능"))
+    return out
+
+
 def _crawl(base):
     host = urlparse(base).netloc
     origin = "{0.scheme}://{0.netloc}".format(urlparse(base))
     seen, pages, forms, seen_js = set(), [], [], set()
+    page_status = {}                                    # url → HTTP status(상태코드 인벤토리용)
+    body_findings = []                                  # A: 로드 본문서 흘러나온 취약정보(시크릿/오류/소스맵)
     js_eps = 0
     queue = [base] + [origin + p for p in COMMON_PATHS]     # 콘텐츠 발굴 시드
     while queue and len(seen) < MAX_PAGES:
@@ -117,6 +142,8 @@ def _crawl(base):
         if not r or r[0] == 404 or not r[2]:
             continue
         pages.append(url)
+        page_status[url] = r[0]                          # 크롤 시점 상태코드 보존(200/301/302/401/403..)
+        body_findings += _scan_body(url, r[2])           # A: 이 응답 본문의 취약정보 식별(추가 요청 0)
         p = _Links()
         try:
             p.feed(r[2])
@@ -137,13 +164,14 @@ def _crawl(base):
                 if jr and jr[2]:
                     eps = _extract_js_endpoints(jr[2], origin, host)
                     js_eps += len(eps); cand += list(eps)
+                    body_findings += _scan_body(su, jr[2])   # A: JS 번들 본문의 시크릿/엔드포인트 누수
         for href in cand:
             u = urljoin(url, href).split("#")[0]
             if urlparse(u).netloc == host and u not in seen and len(seen) + len(queue) < MAX_PAGES * 3:
                 queue.append(u)
     if seen_js:
         print(f"[*] SPA 자율탐색: JS {len(seen_js)}개 분석 · API 엔드포인트 {js_eps}개 추출")
-    return pages, forms
+    return pages, forms, page_status, body_findings
 
 
 def _set_param(url, key, val):
@@ -198,22 +226,24 @@ def _probe_point(fetch_with):
     return out
 
 
-def _to_exchanges(pages, forms):
+def _to_exchanges(pages, forms, page_status=None):
     """크롤로 식별한 페이지/폼 → capture 공통 Exchange 리스트 (replay/인벤토리 공용).
-    쿠키(SAST_HTTP_COOKIE)가 있으면 실어 '인증된 요청'으로 만든다(무인증 스윕이 이걸 벗겨 테스트)."""
+    쿠키(SAST_HTTP_COOKIE)가 있으면 실어 '인증된 요청'으로 만든다(무인증 스윕이 이걸 벗겨 테스트).
+    page_status(url→코드)가 있으면 GET Exchange 에 상태코드를 실어 인벤토리에 반영한다."""
     from . import capture
+    ps = page_status or {}
     ck = os.environ.get("SAST_HTTP_COOKIE")
     base_h = {"cookie": ck} if ck else {}
     exs = []
     for u in pages:
-        exs.append(capture._mk("GET", u, dict(base_h), "", "", "", "", "", ""))
+        exs.append(capture._mk("GET", u, dict(base_h), "", "", "", "", ps.get(u, ""), ""))
     for f in forms:
         action = urljoin(f["page"], f.get("action") or f["page"])
         method = (f.get("method") or "get").upper()
         fields = f.get("fields") or []
         if method == "GET":
             url = action + ("?" + "&".join(k + "=" for k in fields) if fields else "")
-            exs.append(capture._mk("GET", url, dict(base_h), "", "", "", "", "", ""))
+            exs.append(capture._mk("GET", url, dict(base_h), "", "", "", "", ps.get(action, ""), ""))
         else:
             h = dict(base_h); h["content-type"] = "application/x-www-form-urlencoded"
             body = "&".join(k + "=" for k in fields)
@@ -222,19 +252,44 @@ def _to_exchanges(pages, forms):
 
 
 def crawl_exchanges(base_url):
-    """URL 크롤 → (exchanges, 페이지수, 폼수). URL 을 replay role 엔진에 먹이기 위한 진입점."""
+    """URL 크롤 → (exchanges, 페이지수, 폼수, 본문누수findings). URL 을 replay role 엔진에 먹이기 위한 진입점."""
     base = base_url.rstrip("/")
     print(f"[*] URL 크롤(엔드포인트 식별): {base}")
-    pages, forms = _crawl(base)
-    return _to_exchanges(pages, forms), len(pages), len(forms)
+    pages, forms, pstat, body_findings = _crawl(base)
+    return _to_exchanges(pages, forms, pstat), len(pages), len(forms), body_findings
 
 
-def _write_endpoints(pages, forms, out_dir):
+def _status_probe(url):
+    """엔드포인트 상태코드 관측용 GET(리다이렉트 미추적 → 302 를 그대로 관측). 실패 시 None."""
+    r = _fetch(url, redirect=False)
+    return r[0] if r else None
+
+
+def enrich_status(eps, limit=None):
+    """엔드포인트 인벤토리에 실제 상태코드를 채우고 '완전 불가(404/무응답)'만 골라낸다.
+    이미 관측된 status(캡처/크롤)는 유지, 없는 GET(비상태변경)만 프로브(상한 SAST_STATUS_PROBES).
+    302·401·403 등 '정보 있는' 응답은 남긴다 — 능동 모드 전용(패킷 전송)."""
+    cap = int(os.environ.get("SAST_STATUS_PROBES", str(limit or 300)))
+    out, n = [], 0
+    for e in eps:
+        st = {str(s) for s in e.get("statuses", set()) if str(s)}
+        if not st and e.get("method") == "GET" and not e.get("state_changing") and n < cap:
+            code = _status_probe(e.get("sample") or "")
+            n += 1
+            if code:
+                e.setdefault("statuses", set()).add(str(code)); st = {str(code)}
+        if st and st <= {"404", "0"}:               # 관측된 게 전부 404/무응답 → 접근 완전불가, 제외
+            continue
+        out.append(e)
+    return out
+
+
+def _write_endpoints(pages, forms, pstat, out_dir):
     """크롤로 식별한 페이지/폼 → 엔드포인트 인벤토리 CSV (캡처와 동일 포맷)."""
     if not out_dir:
         return
     from . import capture
-    inv = capture.endpoints(_to_exchanges(pages, forms))
+    inv = capture.endpoints(_to_exchanges(pages, forms, pstat))
     capture.write_endpoints_csv(inv, os.path.join(out_dir, "endpoints.csv"))
     print(f"[*] 능동 크롤: 엔드포인트 {len(inv)}개 식별 → {out_dir}/endpoints.csv")
 
@@ -242,8 +297,8 @@ def _write_endpoints(pages, forms, out_dir):
 def scan(base_url, out_dir=None):
     base = base_url.rstrip("/")
     print(f"[*] 능동 DAST: {base} (인가 대상 전제 · 비파괴 payload)")
-    pages, forms = _crawl(base)
-    _write_endpoints(pages, forms, out_dir)     # URL → 엔드포인트 식별부터
+    pages, forms, pstat, _bf = _crawl(base)
+    _write_endpoints(pages, forms, pstat, out_dir)     # URL → 엔드포인트 식별부터
     findings = []
     seen_pt = set()
 
