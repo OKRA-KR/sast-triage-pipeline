@@ -69,7 +69,9 @@ MAX_JS = int(os.environ.get("SAST_ACTIVE_JS", "20"))
 
 def _extract_js_endpoints(js, origin, host, base=None):
     """JS 텍스트에서 API 엔드포인트(URL/경로) 추출 — SPA 의 fetch/axios/ajax 호출·경로 리터럴.
-    base(현재 페이지/번들 URL)가 있으면 fetch/axios 의 상대경로 인자(./x, ../x, x/y)도 resolve."""
+    base(현재 페이지/번들 URL)가 있으면 fetch/axios 의 '명시적' 상대경로(./x, ../x)만 resolve.
+    bare 상대(service/x.mvc 등)는 프레임워크마다 기준(앱 컨텍스트/API base)이 달라 JS 파일
+    디렉터리에 붙이면 쓰레기 경로가 나오므로 제외 — 그런 서버 라우트는 routes.py 가 결정론적으로 담당."""
     found = set()
     for rx in (_JS_CALL, _JS_URL):
         for m in rx.findall(js or ""):
@@ -77,7 +79,7 @@ def _extract_js_endpoints(js, origin, host, base=None):
                 u = m
             elif m.startswith("/"):
                 u = origin + m
-            elif rx is _JS_CALL and re.match(r"\.{0,2}/[\w.-]|[\w.-]+/[\w.-]", m):   # 상대경로 호출 인자만(FP 억제)
+            elif rx is _JS_CALL and re.match(r"\.\.?/[\w.-]", m):   # 명시적 문서상대(./ ../)만
                 u = urljoin(base or (origin + "/"), m)
             else:
                 continue
