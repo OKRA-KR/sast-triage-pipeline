@@ -500,6 +500,10 @@ def _unauth_sweep(reps, add):
         return
     hit = rev = 0
     for ex in authed:
+        path = ex.get("path") or ""
+        # 정적 리소스(css/js/img/폰트)·공개 경로는 무인증 200 이 정상 — 접근제어 대상 아님(검토버킷 노이즈 방지)
+        if _STATIC.search(path) or path in _PUBLIC:
+            continue
         r = _send(ex["method"], ex["url"], _no_auth_headers(ex), ex["req_body"] or None)
         if not (r and not _blocked(r) and not _app_denied(r) and 200 <= r[0] < 300 and _resp_len(r) > 50):
             continue

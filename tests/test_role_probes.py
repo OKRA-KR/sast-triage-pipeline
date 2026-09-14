@@ -34,6 +34,18 @@ def test_missing_auth_detected():
     assert all((f.get("dynamic") or {}).get("status") != "confirmed" for f in ma), "동적확증 카운트 금지"
 
 
+def test_static_asset_not_missing_auth():
+    # 정적 리소스(css/js/img)는 무인증 200 이 정상 — missing-auth 로 잡으면 안 됨(검토버킷 노이즈)
+    exs = [_ex("GET", "/css/main.css", ""), _ex("GET", "/js/libs/require.min.js", ""),
+           _ex("GET", "/css/img/favicon.ico", "")]
+
+    def responder(method, url, headers, body):
+        return 200, {"content-type": "text/css"}, "body{color:red}" + "z" * 300
+    fs = _run(exs, responder)
+    assert not [f for f in fs if f["category"] == "missing-auth"], \
+        "정적 리소스는 무인증 스윕에서 제외돼야 함"
+
+
 def test_auth_enforced_not_flagged():
     ex = _ex("POST", "/api/user/save.php", "corpNo=1&corpName=x&pwd=p")
 
