@@ -26,8 +26,12 @@ def test_missing_auth_detected():
         # 쿠키 유무와 무관하게 항상 success + 데이터 → 인증 부재
         return 200, {}, "success " + "y" * 300
     fs = _run([ex], responder)
-    assert any(f["category"] == "missing-auth" and f["verdict"] == "true_positive" for f in fs), \
-        "무세션에도 처리되면 인증부재로 잡아야 함"
+    # 무세션에도 200+데이터 → 후보로 surfacing. 단 응답만으론 공개/보호대상 구분 불가라
+    # 하드 확증(true_positive/동적확증)은 하지 않고 검토대상으로 남긴다(실사이트 대량 오탐 방지).
+    ma = [f for f in fs if f["category"] == "missing-auth"]
+    assert ma, "무인증 200 이면 후보로 surfacing 되어야 함"
+    assert all(f["verdict"] != "true_positive" for f in ma), "응답만으론 확증 불가 → 하드 확증 금지"
+    assert all((f.get("dynamic") or {}).get("status") != "confirmed" for f in ma), "동적확증 카운트 금지"
 
 
 def test_auth_enforced_not_flagged():

@@ -481,9 +481,20 @@ def scan_capture(exchanges, session=None, session_b=None, oob=None):
     return findings
 
 
+def _similar(a, b):
+    """두 응답 본문이 사실상 같은가(길이비 95%↑). '세션 유무로 응답 동일' 판정용."""
+    la, lb = len(a or ""), len(b or "")
+    if la == 0 and lb == 0:
+        return True
+    if la == 0 or lb == 0:
+        return False
+    return min(la, lb) / max(la, lb) >= 0.95
+
+
 def _unauth_sweep(reps, add):
     """무인증 접근 점검 — 캡처에서 인증(쿠키)됐던 요청을 세션/인증 헤더 제거 후 재전송.
-    차단 없이 데이터/성공 반환하면 인증·권한 부재(Missing Auth / Broken Access Control)."""
+    차단 없이 데이터/성공 반환하면 인증·권한 부재(Missing Auth / Broken Access Control).
+    단, 세션 유무로 응답이 '동일'하면 공개 리소스이거나 제공 세션이 무효 → 하드 확증하지 않는다(오탐 방지)."""
     authed = [ex for ex in reps if _had_auth(ex)]
     if not authed:
         return
@@ -493,8 +504,17 @@ def _unauth_sweep(reps, add):
         if not (r and not _blocked(r) and not _app_denied(r) and 200 <= r[0] < 300 and _resp_len(r) > 50):
             continue
         ct = (r[1].get("content-type", "") or "").lower()
-        # 응답이 암호화/불투명(JSON 암호블롭)이면 데이터 노출 확증 불가 → 검토대상으로 강등(오탐 방지)
-        if _opaque_json(r[2]) and "html" not in ct and not ct.startswith(("image", "application/octet")):
+        authed_body = ex.get("resp_body") or ""
+        # 핵심 오탐 방지: 세션 유무로 응답이 동일하거나(=공개 리소스/세션무효) 비교할 원본이 없으면 하드 확증 금지.
+        if (not authed_body) or _similar(authed_body, r[2] or ""):
+            rev += 1
+            f = _f("missing-auth", "high", ex, "(무인증)", "세션 제거 후 응답 동일/비교불가",
+                   f"인증 없이 {ex['method']} {ex['path']} 200 — 세션 유무로 응답 동일(공개 리소스/세션무효 가능)",
+                   "needs_review")
+            f["confidence"] = 0.35
+            f["rationale"] = ("세션/쿠키 제거 전후 응답이 사실상 동일 → 이 엔드포인트는 세션에 의존하지 않음"
+                              "(공개 리소스이거나 제공 세션이 무효). 보호대상 데이터 노출 여부는 수동/LLM 확인 필요.")
+        elif _opaque_json(r[2]) and "html" not in ct and not ct.startswith(("image", "application/octet")):
             rev += 1
             f = _f("missing-auth", "medium", ex, "(무인증)", "세션/인증 제거 재전송",
                    f"인증 없이 {ex['method']} {ex['path']} 200 응답(암호화 본문) — 데이터 노출/인증내장 여부 수동확인 필요",
@@ -503,16 +523,21 @@ def _unauth_sweep(reps, add):
             f["rationale"] = ("세션/쿠키 제거 후에도 200+본문을 반환하나 응답이 암호화돼 실제 데이터 노출을 확증 못함. "
                               "요청 암호본문에 인증정보가 내장됐을 수 있어 진짜 인증부재인지 복호화/수동확인 필요.")
         else:
+            # 세션 응답과 무인증 응답이 '다른데' 무인증에서도 데이터 반환 → 가장 유력한 후보(하지만
+            # 응답만으로 '보호대상 데이터'인지 자동 확증 불가 → 검토대상 상위, 확증은 사람/LLM 몫).
             hit += 1
-            f = _f("missing-auth", "critical", ex, "(무인증)", "세션/인증 제거 재전송",
-                   f"인증 없이 {ex['method']} {ex['path']} 처리됨({r[0]}, len {_resp_len(r)}) — 인증/권한 부재(CWE-306)",
-                   "true_positive")
-            f["confidence"] = 0.85
-            f["rationale"] = ("캡처에서 인증(쿠키)이 있던 요청을 세션/인증 헤더 제거 후 재전송했을 때 차단 없이 "
-                              "읽을 수 있는 데이터/미디어 반환 → 서버가 인증을 강제하지 않음. 상태변경이면 비인증 조작·계정탈취로 연결.")
+            f = _f("missing-auth", "high", ex, "(무인증)", "세션 제거 시 응답 변화",
+                   f"인증 없이 {ex['method']} {ex['path']} 200 — 세션 응답과 다른 데이터 반환(인증/권한 부재 유력, CWE-306)",
+                   "needs_review")
+            f["confidence"] = 0.6
+            f["rationale"] = ("인증(세션) 응답과 무인증 응답이 서로 다른데 무인증에서도 차단 없이 데이터를 반환 → "
+                              "인증부재/BOLA 유력 정황. 다만 응답이 보호대상 데이터인지는 자동 확증 불가 — "
+                              "상태변경 액션이거나 타 사용자 데이터면 확정. 두 계정/수동·LLM 교차 확인 권장.")
         add(f)
-    print(f"[*] 무인증 접근 점검: 인증대상 {len(authed)}개 중 확증 {hit}개" + (" ⚠" if hit else "")
-          + (f" · 검토(암호응답) {rev}개" if rev else ""))
+    if rev and rev >= max(3, int(len(authed) * 0.6)):
+        print(f"[!] 무인증 점검: {len(authed)}개 중 {rev}개가 '세션 유무 응답 동일' — 제공 세션이 무효이거나 대부분 공개 리소스일 수 있음(로그인 세션 확인 권장).")
+    print(f"[*] 무인증 접근 점검: 인증대상 {len(authed)}개 → 후보 {hit + rev}개"
+          f"(응답변화 {hit} · 동일/암호 {rev}) — 전부 검토대상(확증은 수동/LLM 몫)")
 
 
 def _stored_xss(reps, ck_a, add):
