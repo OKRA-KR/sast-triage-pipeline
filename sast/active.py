@@ -67,8 +67,9 @@ _JS_URL = re.compile(r"""["'`](/(?:api|rest|graphql|ajax|service|services|backen
 MAX_JS = int(os.environ.get("SAST_ACTIVE_JS", "20"))
 
 
-def _extract_js_endpoints(js, origin, host):
-    """JS 텍스트에서 API 엔드포인트(URL/경로) 추출 — SPA 의 fetch/axios/ajax 호출·경로 리터럴."""
+def _extract_js_endpoints(js, origin, host, base=None):
+    """JS 텍스트에서 API 엔드포인트(URL/경로) 추출 — SPA 의 fetch/axios/ajax 호출·경로 리터럴.
+    base(현재 페이지/번들 URL)가 있으면 fetch/axios 의 상대경로 인자(./x, ../x, x/y)도 resolve."""
     found = set()
     for rx in (_JS_CALL, _JS_URL):
         for m in rx.findall(js or ""):
@@ -76,9 +77,12 @@ def _extract_js_endpoints(js, origin, host):
                 u = m
             elif m.startswith("/"):
                 u = origin + m
+            elif rx is _JS_CALL and re.match(r"\.{0,2}/[\w.-]|[\w.-]+/[\w.-]", m):   # 상대경로 호출 인자만(FP 억제)
+                u = urljoin(base or (origin + "/"), m)
             else:
                 continue
-            if urlparse(u).netloc and urlparse(u).netloc != host:
+            pu = urlparse(u)
+            if pu.netloc and pu.netloc != host:
                 continue           # 외부 도메인 제외(동일 호스트만)
             found.add(u.split("#")[0])
     return found
@@ -86,13 +90,18 @@ def _extract_js_endpoints(js, origin, host):
 
 class _Links(HTMLParser):
     def __init__(self):
-        super().__init__(); self.links = []; self.forms = []; self.scripts = []; self._f = None
+        super().__init__(); self.links = []; self.forms = []; self.scripts = []; self.assets = []; self._f = None
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if tag == "a" and a.get("href"):
             self.links.append(a["href"])
         elif tag == "script" and a.get("src"):
-            self.scripts.append(a["src"])            # SPA JS 번들
+            self.scripts.append(a["src"])            # SPA JS 번들(내부 엔드포인트 추출용)
+            self.assets.append(a["src"])             # + 리소스 자체도 인벤토리에 기록
+        elif tag == "link" and a.get("href") and (
+                "stylesheet" in (a.get("rel") or "").lower()
+                or a["href"].lower().split("?")[0].endswith((".css", ".js"))):
+            self.assets.append(a["href"])            # 스타일/모듈 리소스(컴포넌트 발자국)
         elif tag == "form":
             self._f = {"action": a.get("action", ""), "method": (a.get("method") or "get").lower(), "fields": []}
         elif tag in ("input", "textarea", "select") and self._f is not None and a.get("name"):
@@ -131,6 +140,7 @@ def _crawl(base):
     seen, pages, forms, seen_js = set(), [], [], set()
     page_status = {}                                    # url → HTTP status(상태코드 인벤토리용)
     body_findings = []                                  # A: 로드 본문서 흘러나온 취약정보(시크릿/오류/소스맵)
+    asset_seen = set()                                  # 정적 리소스(script/link) 중복 방지
     js_eps = 0
     queue = [base] + [origin + p for p in COMMON_PATHS]     # 콘텐츠 발굴 시드
     while queue and len(seen) < MAX_PAGES:
@@ -151,9 +161,14 @@ def _crawl(base):
             pass
         for f in p.forms:
             f["page"] = url; forms.append(f)
+        # 정적 리소스(script src·link href, 상대경로 포함) URI 자체를 인벤토리에 기록 — 컴포넌트 발자국(SynapEditor 등)
+        for ref in getattr(p, "assets", []):
+            au = urljoin(url, ref).split("#")[0]
+            if urlparse(au).netloc == host and au not in asset_seen:
+                asset_seen.add(au); pages.append(au)         # status 는 아래 JS 페치 또는 enrich_status 가 보강
         cand = list(p.links) + [urljoin(url, a) for a in (f["action"] for f in p.forms) if a]
         cand += _EP_RE.findall(r[2])                        # HTML/인라인 JS 내 엔드포인트 문자열
-        cand += list(_extract_js_endpoints(r[2], origin, host))   # 인라인 JS API 호출
+        cand += list(_extract_js_endpoints(r[2], origin, host, url))   # 인라인 JS API 호출(상대경로 resolve)
         # SPA: <script src> JS 번들을 받아 API 엔드포인트 추출
         for s in getattr(p, "scripts", []):
             su = urljoin(url, s).split("#")[0]
@@ -161,8 +176,10 @@ def _crawl(base):
                     and su not in seen_js and len(seen_js) < MAX_JS):
                 seen_js.add(su)
                 jr = _fetch(su)
+                if jr:
+                    page_status[su] = jr[0]                  # 번들 URI 의 상태코드 인벤토리에 반영
                 if jr and jr[2]:
-                    eps = _extract_js_endpoints(jr[2], origin, host)
+                    eps = _extract_js_endpoints(jr[2], origin, host, su)
                     js_eps += len(eps); cand += list(eps)
                     body_findings += _scan_body(su, jr[2])   # A: JS 번들 본문의 시크릿/엔드포인트 누수
         for href in cand:
