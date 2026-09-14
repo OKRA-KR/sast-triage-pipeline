@@ -200,6 +200,19 @@ def cmd_scan(a):
                         print(f"[*] 인증 재크롤 {len(aexs)}건 ≤ 비인증 {len(exs_url)}건 — 비인증 결과 유지")
                 endpoints_all += capture.endpoints(exs_url)
                 findings = findings + bleaks                           # A: 로드 본문서 식별한 취약정보 합류
+                # SAST→DAST 라우트 다리: 소스 라우트(@GetMapping·route 등)를 DAST 프로브 대상으로.
+                # SPA/AJAX 앱은 공격 엔드포인트가 정적 크롤로 안 잡혀 → 소스에서 결정론적으로 발굴.
+                if have_repo:
+                    from . import routes as routes_mod
+                    troutes = routes_mod.extract_routes(target)
+                    if troutes:
+                        rex = routes_mod.to_exchanges(troutes, vu, cookie=os.environ.get("SAST_HTTP_COOKIE"))
+                        exs_url = exs_url + rex
+                        endpoints_all += capture.endpoints(rex)
+                        print(f"[*] SAST→DAST 라우트 다리: 소스 라우트 {len(troutes)}개 → DAST 프로브 합류"
+                              " (크롤이 못 찾는 SPA/AJAX 표면)")
+                        if "route-bridge" not in layers:
+                            layers.append("route-bridge")
                 findings = _run_active(exs_url, findings, require_session=False,
                                        oob=oob_listener, presession=(sess_a, sess_b))
                 for _l in ("crawl", "replay"):
