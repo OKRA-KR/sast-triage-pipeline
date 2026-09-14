@@ -189,7 +189,11 @@ def cmd_scan(a):
                 if sess_a and sess_a.cookie and not str(sess_a.cookie).startswith("Bearer "):
                     os.environ["SAST_HTTP_COOKIE"] = sess_a.cookie
                     print("[*] 로그인 세션으로 인증 재크롤 — 로그인 뒤 페이지·JS API 도달")
-                    aexs, anpg, anfm, ableaks = active.crawl_exchanges(vu)   # 2차: 인증 상태 재크롤
+                    # 로그인 랜딩을 시드로 — 비인증 base 가 인증 시 404/다른 진입점인 앱(Spring 등) 대응
+                    seeds = [sess_a.landing] if getattr(sess_a, "landing", None) else None
+                    if seeds:
+                        print(f"[*] 인증 진입점 시드: {seeds[0]}")
+                    aexs, anpg, anfm, ableaks = active.crawl_exchanges(vu, seeds=seeds)   # 2차: 인증 상태 재크롤
                     if len(aexs) >= len(exs_url):                      # 인증 크롤이 더 찾았을 때만 채택
                         exs_url, npg, nfm, bleaks = aexs, anpg, anfm, ableaks
                     else:

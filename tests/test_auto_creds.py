@@ -52,7 +52,7 @@ def test_build_sessions_auto_login(monkeypatch):
     monkeypatch.delenv("SAST_LOGIN_USER", raising=False)
     monkeypatch.delenv("SAST_LOGIN_PASS", raising=False)
     monkeypatch.setattr(login, "authenticate",
-                        lambda tmpl, user, pw, cur=None, verify_ex=None: "PHPSESSID=fresh")
+                        lambda tmpl, user, pw, cur=None, verify_ex=None, out=None: "PHPSESSID=fresh")
     exs = [_login_ex("glnt", "gl1357", "success#1")]
     a, b = login.build_sessions(exs)
     assert a is not None and a.cookie == "PHPSESSID=fresh"
@@ -63,7 +63,7 @@ def test_working_session_uses_auto_creds(monkeypatch):
     monkeypatch.delenv("SAST_LOGIN_PASS", raising=False)
     monkeypatch.delenv("SAST_HTTP_COOKIE", raising=False)
     monkeypatch.setattr(login, "authenticate",
-                        lambda tmpl, user, pw, cur=None, verify_ex=None: "PHPSESSID=fresh")
+                        lambda tmpl, user, pw, cur=None, verify_ex=None, out=None: "PHPSESSID=fresh")
     exs = [_login_ex("glnt", "gl1357", "success#1")]
     ok, a, b = login.working_session(exs)
     assert ok is True and a.cookie == "PHPSESSID=fresh"

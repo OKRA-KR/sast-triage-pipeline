@@ -134,7 +134,7 @@ def _scan_body(url, body):
     return out
 
 
-def _crawl(base):
+def _crawl(base, seeds=None):
     host = urlparse(base).netloc
     origin = "{0.scheme}://{0.netloc}".format(urlparse(base))
     seen, pages, forms, seen_js = set(), [], [], set()
@@ -142,7 +142,9 @@ def _crawl(base):
     body_findings = []                                  # A: 로드 본문서 흘러나온 취약정보(시크릿/오류/소스맵)
     asset_seen = set()                                  # 정적 리소스(script/link) 중복 방지
     js_eps = 0
-    queue = [base] + [origin + p for p in COMMON_PATHS]     # 콘텐츠 발굴 시드
+    # 시드: base + 명시 시드(로그인 랜딩 등, 동일 호스트만) + 콘텐츠 발굴(COMMON_PATHS)
+    extra = [s for s in (seeds or []) if s and urlparse(s).netloc == host]
+    queue = [base] + extra + [origin + p for p in COMMON_PATHS]
     while queue and len(seen) < MAX_PAGES:
         url = queue.pop(0).split("#")[0]
         if url in seen:
@@ -268,11 +270,12 @@ def _to_exchanges(pages, forms, page_status=None):
     return exs
 
 
-def crawl_exchanges(base_url):
-    """URL 크롤 → (exchanges, 페이지수, 폼수, 본문누수findings). URL 을 replay role 엔진에 먹이기 위한 진입점."""
+def crawl_exchanges(base_url, seeds=None):
+    """URL 크롤 → (exchanges, 페이지수, 폼수, 본문누수findings). URL 을 replay role 엔진에 먹이기 위한 진입점.
+    seeds: 추가 시드 URL(예: 로그인 성공 랜딩) — 비인증 base 와 인증 진입점이 다른 앱에서 필수."""
     base = base_url.rstrip("/")
     print(f"[*] URL 크롤(엔드포인트 식별): {base}")
-    pages, forms, pstat, body_findings = _crawl(base)
+    pages, forms, pstat, body_findings = _crawl(base, seeds=seeds)
     return _to_exchanges(pages, forms, pstat), len(pages), len(forms), body_findings
 
 

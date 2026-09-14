@@ -11,7 +11,7 @@ Set-Cookie 세션을 얻고, replay 도중 세션이 죽으면 자동 재로그�
 PW 는 로그에 마스킹. 인가 대상 전용.
 """
 import os, re, ssl, urllib.request, urllib.error
-from urllib.parse import urlparse, parse_qsl, urlencode
+from urllib.parse import urlparse, parse_qsl, urlencode, urljoin
 from .capture import _AUTHFAIL, _body_params, _headers
 from .schema import new_finding
 from . import env
@@ -199,7 +199,7 @@ def _bearer_from(rb):
     return None
 
 
-def authenticate(template, user, pw, cur_cookie=None, verify_ex=None):
+def authenticate(template, user, pw, cur_cookie=None, verify_ex=None, out=None):
     """로그인 요청 전송 → **양성 성공 검증** 통과 시 세션 자격(Cookie 또는 'Bearer …') 반환, 아니면 None.
 
     - CSRF 토큰 파라미터가 있으면 폼 페이지에서 신선한 토큰을 받아 주입(사이트 무관).
@@ -266,6 +266,10 @@ def authenticate(template, user, pw, cur_cookie=None, verify_ex=None):
         cred = cur_cookie
     kind = "쿠키갱신" if new_cookie else ("Bearer토큰" if bearer else "세션유지")
     success_redirect = 300 <= status < 400 and not fail_redirect     # 로그인 아닌 곳으로 302 = 성공
+    # 인증 랜딩 URL — 로그인 성공 리다이렉트 목적지. 인증 재크롤의 시드로 쓰인다(비인증 base 와
+    # 인증 진입점이 다른 앱: Spring 등이 로그인 후 /welcome·/start 로 보냄). 실패 리다이렉트는 제외.
+    if out is not None and loc and not fail_redirect:
+        out["landing"] = urljoin(url, loc)
     # ── 양성 성공 검증 ──
     if verify_ex is not None:
         pr2 = _send_raw(verify_ex["method"], verify_ex["url"], verify_ex["req_headers"], None, cred)
@@ -288,14 +292,19 @@ class Session:
         self.cookie = cookie
         self.verify_ex = verify_ex
         self.label = _mask(user)
+        self.landing = None          # 로그인 성공 리다이렉트 목적지(인증 재크롤 시드)
 
     def ensure(self):
         if not self.cookie:
-            self.cookie = authenticate(self.template, self.user, self.pw, verify_ex=self.verify_ex)
+            out = {}
+            self.cookie = authenticate(self.template, self.user, self.pw, verify_ex=self.verify_ex, out=out)
+            self.landing = out.get("landing")
         return self.cookie
 
     def reauth(self):
-        self.cookie = authenticate(self.template, self.user, self.pw, self.cookie, self.verify_ex)
+        out = {}
+        self.cookie = authenticate(self.template, self.user, self.pw, self.cookie, self.verify_ex, out=out)
+        self.landing = out.get("landing") or self.landing
         return self.cookie
 
 
