@@ -46,6 +46,124 @@ def _resolve(host):
         return []
 
 
+# ── DoH 리졸버 (패시브) ───────────────────────────────────────────────
+# 시스템 DNS 대신 제3자 DoH 로 해석 — 로컬 DNS 가 막힌/필터된 환경서도 동작하고
+# 대상 권한 네임서버로 직접 질의가 안 나감(이식성). 옵트아웃 SAST_RECON_NO_DOH.
+DOH_URLS = ("https://dns.google/resolve", "https://cloudflare-dns.com/dns-query")
+
+
+def _use_doh():
+    import os
+    return not os.environ.get("SAST_RECON_NO_DOH")
+
+
+def _doh(host, rtype="A"):
+    """DoH 로 host 해석. IP 리스트(빈 리스트=확정적으로 없음), None=DoH 자체 불가."""
+    from urllib.parse import urlencode
+    for base in DOH_URLS:
+        try:
+            q = urlencode({"name": host, "type": rtype})
+            req = urllib.request.Request(f"{base}?{q}",
+                                         headers={"accept": "application/dns-json", "User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=8, context=env.ssl_context()) as r:
+                data = json.loads(r.read().decode("utf-8", "replace"))
+            status = data.get("Status")
+            if status == 3:                 # NXDOMAIN — 확정적으로 없음
+                return []
+            if status == 0:                 # NOERROR — A(1)/AAAA(28) 만 취함
+                return [a["data"] for a in data.get("Answer", []) if a.get("type") in (1, 28)]
+        except Exception:
+            continue
+    return None                             # 두 엔드포인트 모두 실패 → DoH 불가
+
+
+def resolve(host, use_doh=False):
+    """DoH 우선(가능 시) 후 시스템 리졸버 폴백."""
+    if use_doh:
+        ips = _doh(host)
+        if ips is not None:
+            return sorted(set(ips))
+    return _resolve(host)
+
+
+# ── Wayback CDX (패시브, 타깃 무접촉) ─────────────────────────────────
+_WB_CACHE = {}
+
+
+def _wayback_raw(domain, timeout=None):
+    """web.archive.org CDX — *.domain/* 의 과거 URL. 아카이브 질의라 타깃엔 요청 0.
+    Archive.org 가 느릴 때가 잦아 타임아웃·상한을 env 로 조절: SAST_RECON_WAYBACK_TIMEOUT(초),
+    SAST_RECON_WAYBACK_LIMIT(행)."""
+    import os
+    from urllib.parse import urlencode
+    if timeout is None:
+        timeout = int(os.environ.get("SAST_RECON_WAYBACK_TIMEOUT", "30"))
+    limit = os.environ.get("SAST_RECON_WAYBACK_LIMIT", "20000")
+    urls = set()
+    q = urlencode({"url": f"*.{domain}/*", "output": "json", "fl": "original",
+                   "collapse": "urlkey", "limit": limit})
+    try:
+        req = urllib.request.Request(f"https://web.archive.org/cdx/search/cdx?{q}",
+                                     headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=timeout, context=env.ssl_context()) as r:
+            rows = json.loads(r.read().decode("utf-8", "replace"))
+        for row in rows[1:]:                # 첫 줄 = 헤더
+            if row and row[0]:
+                urls.add(row[0])
+        print(f"[*] recon: Wayback(패시브) URL {len(urls)}개")
+    except Exception as e:
+        print(f"[!] recon: Wayback 조회 실패 — {str(e)[:80]}")
+    return urls
+
+
+def _wayback_urls(domain):
+    """세션 내 도메인별 1회만 질의(enumerate/endpoints 재사용)."""
+    if domain not in _WB_CACHE:
+        _WB_CACHE[domain] = _wayback_raw(domain)
+    return _WB_CACHE[domain]
+
+
+def _wayback_hosts(domain):
+    hosts = set()
+    for u in _wayback_urls(domain):
+        try:
+            h = (urlparse(u).hostname or "").lower()
+        except Exception:
+            continue
+        if h and (h == domain or h.endswith("." + domain)):
+            hosts.add(h)
+    return hosts
+
+
+def wayback_endpoints(urls):
+    """Wayback URL 집합 → capture.endpoints() 와 동일 구조의 인벤토리(GET, 패시브 관측).
+    서브도메인 다수를 포괄하므로 path 필드에 host 를 접두해 충돌·모호성 제거."""
+    from urllib.parse import urlsplit, parse_qsl
+    inv = {}
+    for u in urls:
+        try:
+            sp = urlsplit(u)
+        except Exception:
+            continue
+        host = (sp.hostname or "").lower()
+        disp = f"{host}{sp.path or '/'}"
+        key = ("GET", disp)
+        e = inv.setdefault(key, dict(method="GET", path=disp, host=host, params={},
+                                     statuses=set(), content_types=set(), auth=False,
+                                     count=0, sample=u, state_changing=False))
+        e["count"] += 1
+        for k, _v in parse_qsl(sp.query):
+            if k:
+                e["params"].setdefault(k, set()).add("query")
+    return list(inv.values())
+
+
+def passive_urls(target_url):
+    """target_url 의 등록가능 도메인에 대한 Wayback URL 집합을 (reg, urls) 로 반환."""
+    reg = registrable((urlparse(target_url).hostname or "").lower())
+    return reg, _wayback_urls(reg)
+
+
 def _crtsh(domain):
     out = set()
     try:
@@ -71,9 +189,15 @@ def enumerate_subs(domain, wordlist=None, passive=False, threads=40):
             print(f"[!] recon: 워드리스트 읽기 실패 — {e}")
     if passive:
         cands |= _crtsh(domain)
+        cands |= _wayback_hosts(domain)
+    use_doh = False
+    if passive and _use_doh():
+        # DoH 를 한 번 프로브 — 막힌 환경서 후보마다 타임아웃 무는 걸 피함.
+        use_doh = _doh(domain) is not None
+        print(f"[*] recon: DoH 리졸버 {'사용' if use_doh else '불가 → 시스템 DNS'}")
     found = {}
     with cf.ThreadPoolExecutor(max_workers=threads) as ex:
-        for host, ips in zip(cands, ex.map(_resolve, cands)):
+        for host, ips in zip(cands, ex.map(lambda h: resolve(h, use_doh), cands)):
             if ips:
                 found[host] = ips
     return dict(sorted(found.items()))
