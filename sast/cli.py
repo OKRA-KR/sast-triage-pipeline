@@ -13,6 +13,7 @@
 import argparse, os, re, sys
 from .engines import run_all
 from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra, capture, correlate, replay, login, report, env, recon
+from .core import Config, ScanContext, resolve_name
 
 
 def _classify(a):
@@ -57,60 +58,28 @@ def _run_active(exs, findings, require_session, oob=None, presession=None):
     return findings
 
 
-def _name_of(repo, verify, cap):
-    if repo:
-        return os.path.basename(repo.rstrip("/\\"))
-    if verify:
-        return verify.split("//")[-1].split("/")[0]
-    if cap:
-        return os.path.splitext(os.path.basename(cap))[0]
-    return "scan"
-
-
-def _apply_mode(a):
-    """점검 깊이(축②)를 세 모드로 통일 — 여기 한곳에서만 정의한다.
-      --active : 능동 DAST + 오프라인 트리아지 + recon(하위도메인 정찰). LLM OFF.
-      --full   : --active + LLM(2·3계층). SAST_ONLINE=1, NO_LLM 해제.
-      --domain : 능동 DAST + 오프라인 트리아지, 이 도메인 하나만(recon OFF). LLM OFF.
-      (셋 다 아님): 능동 프로브 없이 안전 패시브만.
-    반환: run_active(bool). 하위호환 env(SAST_FULL/SAST_ACTIVE/SAST_1LAYER)도 인식한다."""
-    full = a.full or os.environ.get("SAST_FULL")
-    domain = getattr(a, "domain", False)
-    active = a.active or os.environ.get("SAST_ACTIVE") or os.environ.get("SAST_1LAYER")
-    if full:
-        os.environ["SAST_ONLINE"] = "1"          # 2·3계층 게이트(LLM 설정돼 있을 때만 실동작)
-        os.environ.pop("SAST_NO_LLM", None)
-        print(f"[*] --full: 능동 DAST + 오프라인 트리아지 + recon + LLM 심화 ({env.mode_label()})")
-    elif domain:
-        os.environ["SAST_NO_LLM"] = "1"          # 1계층: LLM 계층 강제 OFF
-        os.environ["SAST_NO_RECON"] = "1"        # 단일 도메인: 하위도메인 정찰 OFF
-        print("[*] --domain: 능동 DAST + 오프라인 트리아지 (단일 도메인 · recon OFF · LLM OFF)")
-    elif active:
-        os.environ["SAST_NO_LLM"] = "1"          # 1계층: LLM 계층 강제 OFF(폐쇄망 자립)
-        print("[*] --active: 능동 DAST + 오프라인 트리아지 + recon (LLM OFF)")
-    return bool(full or domain or active)
+# 표시 이름 결정은 core.context 로 이관 — 여기선 하위호환 재노출(테스트/외부 참조용).
+# 모드 해석(_apply_mode)은 core.Config.apply_mode 로 이관됨.
+_name_of = resolve_name
 
 
 def cmd_scan(a):
-    out = os.path.abspath(a.out)
+    cfg = Config.from_args(a)
+    out = os.path.abspath(cfg.out)
     os.makedirs(out, exist_ok=True)
-    if getattr(a, "insecure", False):
-        os.environ["SAST_INSECURE_TLS"] = "1"
-        print("[!] TLS 인증서 검증 비활성(--insecure) — MITM/위조응답 위험, 인가 폐쇄망 전용")
-    if a.cookie:
-        os.environ["SAST_HTTP_COOKIE"] = a.cookie
-    if a.header:
-        os.environ["SAST_HTTP_HEADERS"] = ";;".join(a.header)
+    cfg.apply_transport()                            # TLS/쿠키/헤더 → 다운스트림 env 브리지
 
-    target, verify_url, cap = _classify(a)          # 인자 자동판별(폴더/URL/캡처)
-    have_repo = bool(target and os.path.isdir(target))
-    name = a.name or _name_of(target, verify_url, cap)
+    target, verify_url, cap = _classify(a)           # 인자 자동판별(폴더/URL/캡처)
+    ctx = ScanContext(config=cfg, repo=target, verify_url=verify_url, capture=cap)
+    have_repo = ctx.have_repo
+    name = ctx.name
     kinds = [k for k, v in (("소스", have_repo), ("URL", verify_url), ("캡처", cap)) if v]
     if kinds:
         print(f"[*] 입력 인식: {', '.join(kinds)}")
 
+    run_active = cfg.apply_mode()                    # 축② 깊이 해석(모드 배너 + LLM/recon 게이트 env)
+    # 절차 상태는 아직 지역변수(스트랭글러: 스테이지로 순차 이사하며 ctx 로 흡수) ──
     findings, engines, layers = [], [], []
-    run_active = _apply_mode(a)                      # 축② 깊이(--active/--full)를 한곳에서 해석
     endpoints_all, recon_live, recon_subs = [], [], {}   # 결과 워크북(Endpoints·Recon 시트)용 수집
     oob_listener = None
     if a.oob or os.environ.get("SAST_OOB"):
