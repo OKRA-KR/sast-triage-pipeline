@@ -14,7 +14,8 @@ baseline 으로 재전송**하고 파라미터 하나만 변형해 확증한다:
 import hashlib, json, os, re, ssl, time, urllib.request, urllib.error
 from urllib.parse import urlparse, parse_qsl, urlencode
 from .schema import new_finding
-from .capture import _SQL_ERR, _IDOR_NAME, _is_idor_name, _body_params, _headers, _set_by_path, _OPAQUE
+from .capture import (_SQL_ERR, _IDOR_NAME, _is_idor_name, _body_params, _headers,
+                      _set_by_path, _OPAQUE, _json_leaves)
 from . import env
 
 TIMEOUT = 10
@@ -125,6 +126,73 @@ def _is_read(ex):
     if any(w in p for w in ("save", "delete", "update", "insert", "write", "remove", "add", "modify", "logout")):
         return False
     return ex["method"] == "GET" or any(w in p for w in ("search", "list", "view", "detail", "get", "read", "info", "payment", "inout"))
+
+
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _id_shaped(v):
+    """객체 id 형태값? — 숫자(1~12자리) 또는 UUID. 0/1(자리표시) 제외는 호출측에서."""
+    s = str(v)
+    return bool(re.fullmatch(r"\d{1,12}", s)) or bool(_UUID_RE.match(s))
+
+
+def _harvest_ids(reps, ck, cap=40):
+    """C: A 세션 GET 응답에서 실제 객체 id 수집(BOLA 프로브용). placeholder '/1' 없는 컬렉션/자기정보
+    엔드포인트를 A 로 호출해 JSON 리프 중 id 형태값을 모은다. 라우트 다리의 '1' 자리표시가
+    404 나는 UUID/시드 id 시스템(crAPI 등)에서 진짜 객체로 BOLA 를 성립시키는 핵심 입력."""
+    out, seen = [], set()
+    for ex in reps:
+        if ex["method"] != "GET" or "1" in ex["path"].split("/"):
+            continue                                  # 개별객체(placeholder) 요청은 스킵 — 컬렉션서 수집
+        r = _send("GET", ex["url"], _headers_for(ex, ck), None)
+        if not r or _blocked(r) or not r[2]:
+            continue
+        try:
+            obj = json.loads(r[2])
+        except Exception:
+            continue
+        for k, v in _json_leaves(obj):
+            kn = k.split(".")[-1].split("[")[0]
+            if _id_shaped(v) and (_is_idor_name(kn) or True):
+                s = str(v)
+                if s not in seen and s not in ("0", "1"):
+                    seen.add(s); out.append(s)
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _swap_ph(url, new):
+    """URL path 의 자리표시 세그먼트('1')를 실제 id 로 치환(쿼리는 건드리지 않음)."""
+    from urllib.parse import urlsplit, urlunsplit
+    sp = urlsplit(url)
+    segs = [new if s == "1" else s for s in sp.path.split("/")]
+    return urlunsplit((sp.scheme, sp.netloc, "/".join(segs), sp.query, ""))
+
+
+def _bola_real_id(ex, session, session_b, harvested, add):
+    """A 의 진짜 객체 id 를 path 자리표시에 넣어 A 실객체 확보 → B 세션 교차검증 → BOLA 확정."""
+    for rid in harvested[:15]:
+        aurl = _swap_ph(ex["url"], rid)
+        if aurl == ex["url"]:
+            return                                    # 치환할 path 자리표시 없음
+        ra = _send(ex["method"], aurl, _headers_for(ex, session.cookie), ex["req_body"] or None)
+        if not (ra and not _blocked(ra) and 200 <= ra[0] < 300 and _resp_len(ra) > 50):
+            continue                                  # A 가 소유하지 않은 id — 다음 후보
+        toks = {t for t in ([rid] + list(_data_tokens(ra[2]))) if len(t) >= 4}
+        rb = _send(ex["method"], aurl, _headers_for(ex, session_b.cookie), ex["req_body"] or None)
+        if rb and not _blocked(rb) and 200 <= rb[0] < 300 and _resp_len(rb) > 50:
+            hit = sorted(t for t in toks if t in rb[2])[:3]
+            if hit:
+                f = _f("idor", "high", ex, f"(실객체 {rid})", "B세션이 A 실객체 데이터 획득",
+                       f"타 계정({session_b.label}) 세션이 A({session.label}) 실객체({rid}) 데이터 획득 — "
+                       f"식별토큰 {hit} 가 B 응답에 존재 — BOLA 확정", "true_positive")
+                f["confidence"] = 0.92
+                f["rationale"] = ("실객체 ID 하베스팅(C): A 응답에서 얻은 진짜 객체 id 를 B 세션이 접근하니 "
+                                  "A 데이터가 반환됨 → 객체수준 접근통제 실패(BOLA/IDOR) 확정.")
+                add(f)
+        return                                        # A 실객체 하나로 판정(과다요청 방지)
 
 
 def _idor_worthy(ex, authed=False):
@@ -299,6 +367,11 @@ def scan_capture(exchanges, session=None, session_b=None, oob=None):
     # ── 패스 0: 무인증 접근 스윕 (id/pw 없이 뭐가 열리는지부터) ──
     _unauth_sweep(reps, add)
 
+    # ── C: 2계정 스캔이면 A 세션서 실객체 id 하베스팅(placeholder '1' 이 404 나는 실객체 BOLA용) ──
+    harvested = _harvest_ids(reps, ck_a) if (session and session_b) else []
+    if harvested:
+        print(f"[*] BOLA: A 세션서 실객체 id {len(harvested)}개 하베스팅 → 2계정 교차검증에 사용")
+
     for ex in reps:
         hdr = _headers_for(ex, ck_a)
         base = _send(ex["method"], ex["url"], hdr, ex["req_body"] or None)
@@ -365,6 +438,9 @@ def scan_capture(exchanges, session=None, session_b=None, oob=None):
                     f["rationale"] = ("B 세션이 접근은 되나 A 고유 식별자가 응답에 없음 → 세션이 객체를 결정하는 "
                                       "엔드포인트일 수 있음(IDOR 아님 가능). 객체참조 파라미터 조작으로 수동 확인 권장.")
                     add(f)
+        # ── C: path 자리표시('1')가 404 나는 실객체 시스템 — A 하베스팅 id 로 실객체 BOLA 교차검증 ──
+        if session_b and harvested and "1" in ex["path"].split("/") and _idor_worthy(ex, authed=True):
+            _bola_real_id(ex, session, session_b, harvested, add)
         for key, val, loc in _params(ex):
             val = "1" if val in (None, "") else str(val)   # JSON 리프가 숫자/불린일 수 있음 → payload 합성 위해 문자열화
             # ── SQLi: 오류 시그니처 ──
