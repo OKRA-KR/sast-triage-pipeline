@@ -482,35 +482,99 @@ def derive_credentials(exchanges, template):
     return None
 
 
-def build_sessions(exchanges):
+def _mk_login_ex(url, json_body):
+    """라우트 다리용 합성 로그인 exchange — authenticate() 가 user_key/pw_key 를 바디에 주입한다."""
+    from . import capture
+    if json_body:
+        return capture._mk("POST", url, {"content-type": "application/json"}, "{}", "", "", "", "", "")
+    return capture._mk("POST", url, {"content-type": "application/x-www-form-urlencoded"}, "", "", "", "", "", "")
+
+
+def login_templates_from_routes(routes, base):
+    """크롤/캡처에 로그인이 없을 때(JSON-API/SPA) — 라우트 다리가 뽑은 로그인 엔드포인트로
+    로그인 템플릿 후보 생성. 필드/형식은 SAST_LOGIN_FIELDS('user,pw')·SAST_LOGIN_JSON 로 지정,
+    없으면 흔한 조합을 순서대로 시도(build_sessions 가 성공할 때까지 하나씩). base=대상 origin."""
+    if not (routes and base):
+        return []
+
+    def score(r):
+        p = (r.get("path") or "").lower()
+        s = 0
+        if p.rstrip("/").endswith(("/login", "/signin", "/authenticate", "/session", "/token")):
+            s += 6
+        if any(w in p for w in _LOGIN_WORDS):
+            s += 2
+        if any(w in p for w in _NEG_WORDS):
+            s -= 10                              # signup/register/logout/forget 등 제외
+        return s
+
+    cands = sorted([r for r in routes if r.get("method") == "POST" and score(r) > 0],
+                   key=score, reverse=True)
+    if not cands:
+        return []
+    ef = os.environ.get("SAST_LOGIN_FIELDS")
+    if ef and "," in ef:
+        uk, pk = [x.strip() for x in ef.split(",", 1)]
+        field_pairs = [(uk, pk)]
+    else:
+        field_pairs = [("email", "password"), ("username", "password"), ("user", "password"),
+                       ("userId", "password"), ("loginId", "password"), ("email", "passwd")]
+    forms = [True] if os.environ.get("SAST_LOGIN_JSON") else [True, False]   # API 는 보통 JSON, 폼도 폴백
+    base = base.rstrip("/")
+    out = []
+    for r in cands[:2]:
+        url = base + r["path"]
+        for uk, pk in field_pairs:
+            for js in forms:
+                out.append({"ex": _mk_login_ex(url, js), "user_key": uk, "pw_key": pk})
+                if len(out) >= 10:
+                    return out
+    return out
+
+
+def build_sessions(exchanges, routes=None, base=None):
     """자격증명(env 또는 캡처의 성공 로그인에서 자동추출) → (주 세션 A, 보조 세션 B).
 
-    env 자격증명이 없으면 캡처의 성공 로그인에서 자동추출해 재로그인(신선한 세션).
-    둘 다 없거나 로그인 검증 실패면 (None, None).
+    로그인 템플릿은 ①크롤/캡처(derive_login) 우선, 없으면 ②라우트 다리의 로그인 엔드포인트
+    (JSON-API/SPA 대응, env 자격증명 필요). 둘 다 없거나 로그인 검증 실패면 (None, None).
     """
     u1, p1 = os.environ.get("SAST_LOGIN_USER"), os.environ.get("SAST_LOGIN_PASS")
     tmpl = derive_login(exchanges)
-    if not tmpl:
-        if u1 and p1:
-            print("[!] 로그인 요청을 캡처에서 못 찾음 — 캡처에 로그인 트래픽 포함 필요")
-        return None, None
-    if not (u1 and p1):                          # env 자격증명 없으면 캡처서 자동추출
+    if tmpl and not (u1 and p1):                 # env 없으면 캡처서 자격증명 자동추출
         dc = derive_credentials(exchanges, tmpl)
         if not dc:
             return None, None
         u1, p1 = dc
         print(f"[*] 캡처의 성공 로그인에서 자격증명 자동추출: user={_mask(u1)} (신선한 세션 재로그인)")
-    print(f"[*] 로그인 대상 추론: {tmpl['ex']['method']} {tmpl['ex']['path']} "
-          f"(user='{tmpl['user_key']}', pw='{tmpl['pw_key']}')")
+
+    candidates = [tmpl] if tmpl else []
+    if not candidates and u1 and p1:             # 크롤/캡처에 로그인 없음 → 라우트 다리로
+        candidates = login_templates_from_routes(routes, base)
+        if candidates:
+            print("[*] 크롤/캡처에 로그인 없음 → 라우트 다리의 로그인 엔드포인트로 인증 시도(JSON-API/SPA)")
+    if not candidates:
+        if u1 and p1:
+            print("[!] 로그인 요청을 못 찾음 — 캡처/크롤/소스 라우트 어디에도 로그인 엔드포인트 없음")
+        return None, None
+    if not (u1 and p1):
+        return None, None                        # 라우트 경로는 env 자격증명이 있어야 로그인 가능
+
     verify_ex = pick_verify_ex(exchanges)
-    a = Session(tmpl, u1, p1, verify_ex=verify_ex)
-    if not a.ensure():
+    a, used = None, None
+    for cand in candidates:                       # 후보를 하나씩 시도(라우트 다리는 필드조합 프로브)
+        s = Session(cand, u1, p1, verify_ex=verify_ex)
+        if s.ensure():
+            a, used = s, cand
+            break
+    if not a:
         print("[!] 계정 A 로그인 검증 실패 — 세션 미확보. (재현율 보호: 비인증 replay 로 조용히 진행하지 않음)")
         return None, None
+    print(f"[*] 로그인 대상: {used['ex']['method']} {used['ex'].get('path') or used['ex']['url']} "
+          f"(user='{used['user_key']}', pw='{used['pw_key']}')")
     b = None
     u2, p2 = os.environ.get("SAST_LOGIN_USER2"), os.environ.get("SAST_LOGIN_PASS2")
     if u2 and p2:
-        b = Session(tmpl, u2, p2, verify_ex=verify_ex)
+        b = Session(used, u2, p2, verify_ex=verify_ex)
         if b.ensure():
             print("[*] 2계정 모드 — 권한검증(IDOR) 교차확증 활성")
         else:

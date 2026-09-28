@@ -185,7 +185,13 @@ def cmd_scan(a):
             if run_active and not cap:
                 print("[!] 능동 DAST(URL 크롤→replay) — 인가된 대상에만!")
                 exs_url, npg, nfm, bleaks = active.crawl_exchanges(vu)  # 1차: 로그인 폼 발견용(+본문 누수)
-                sess_a, sess_b = login.build_sessions(exs_url)         # 자격증명/캡처추출로 로그인
+                # 소스 라우트를 먼저 추출 — 로그인 유도(SPA/JSON-API)와 DAST 프로브에 공용
+                troutes = []
+                if have_repo:
+                    from . import routes as routes_mod
+                    troutes = routes_mod.extract_routes(target)
+                # 자격증명/캡처추출로 로그인. 크롤에 로그인 없으면 라우트 다리의 로그인 엔드포인트로(JSON-API/SPA)
+                sess_a, sess_b = login.build_sessions(exs_url, routes=troutes, base=vu)
                 if sess_a and sess_a.cookie and not str(sess_a.cookie).startswith("Bearer "):
                     os.environ["SAST_HTTP_COOKIE"] = sess_a.cookie
                     print("[*] 로그인 세션으로 인증 재크롤 — 로그인 뒤 페이지·JS API 도달")
@@ -202,28 +208,25 @@ def cmd_scan(a):
                 findings = findings + bleaks                           # A: 로드 본문서 식별한 취약정보 합류
                 # SAST→DAST 라우트 다리: 소스 라우트(@GetMapping·route 등)를 DAST 프로브 대상으로.
                 # SPA/AJAX 앱은 공격 엔드포인트가 정적 크롤로 안 잡혀 → 소스에서 결정론적으로 발굴.
-                if have_repo:
-                    from . import routes as routes_mod
-                    troutes = routes_mod.extract_routes(target)
-                    if troutes:
-                        # 인벤토리(표면 목록)는 전체 — 발굴은 다 한다.
-                        endpoints_all += capture.endpoints(
-                            routes_mod.to_exchanges(troutes, vu))
-                        # 능동 주입 게이트는 점검 깊이(축②)에 종속: --full 이면 상태변경까지, --active/--domain 은 GET만(안전).
-                        # 파괴적(삭제·결제·초기화)은 어느 모드에서도 제외 — 되돌리기 힘든 부수효과 방지(SAST_PROBE_DESTRUCTIVE 로만 강제).
-                        allow_writes = (cfg.mode == "full")
-                        allow_destr = bool(os.environ.get("SAST_PROBE_DESTRUCTIVE"))
-                        probe = routes_mod.select_for_active(troutes, allow_writes, allow_destr)
-                        rex = routes_mod.to_exchanges(probe, vu, cookie=os.environ.get("SAST_HTTP_COOKIE"))
-                        exs_url = exs_url + rex
-                        writes = sum(1 for r in troutes if r.get("write") and not r.get("destructive"))
-                        destr = sum(1 for r in troutes if r.get("destructive"))
-                        print(f"[*] SAST→DAST 라우트 다리: 발굴 {len(troutes)}개(인벤토리) · "
-                              f"능동 프로브 {len(probe)}개 "
-                              f"[쓰기 {writes}건 {'포함(--full)' if allow_writes else '제외(--active, GET만)'} · "
-                              f"파괴적 {destr}건 {'포함' if allow_destr else '제외'}]")
-                        if "route-bridge" not in layers:
-                            layers.append("route-bridge")
+                # (troutes 는 로그인 유도용으로 이미 위에서 추출됨 — 재사용)
+                if troutes:
+                    # 인벤토리(표면 목록)는 전체 — 발굴은 다 한다.
+                    endpoints_all += capture.endpoints(routes_mod.to_exchanges(troutes, vu))
+                    # 능동 주입 게이트는 점검 깊이(축②)에 종속: --full 이면 상태변경까지, --active/--domain 은 GET만(안전).
+                    # 파괴적(삭제·결제·초기화)은 어느 모드에서도 제외 — 되돌리기 힘든 부수효과 방지(SAST_PROBE_DESTRUCTIVE 로만 강제).
+                    allow_writes = (cfg.mode == "full")
+                    allow_destr = bool(os.environ.get("SAST_PROBE_DESTRUCTIVE"))
+                    probe = routes_mod.select_for_active(troutes, allow_writes, allow_destr)
+                    rex = routes_mod.to_exchanges(probe, vu, cookie=os.environ.get("SAST_HTTP_COOKIE"))
+                    exs_url = exs_url + rex
+                    writes = sum(1 for r in troutes if r.get("write") and not r.get("destructive"))
+                    destr = sum(1 for r in troutes if r.get("destructive"))
+                    print(f"[*] SAST→DAST 라우트 다리: 발굴 {len(troutes)}개(인벤토리) · "
+                          f"능동 프로브 {len(probe)}개 "
+                          f"[쓰기 {writes}건 {'포함(--full)' if allow_writes else '제외(--active, GET만)'} · "
+                          f"파괴적 {destr}건 {'포함' if allow_destr else '제외'}]")
+                    if "route-bridge" not in layers:
+                        layers.append("route-bridge")
                 findings = _run_active(exs_url, findings, require_session=False,
                                        oob=oob_listener, presession=(sess_a, sess_b))
                 for _l in ("crawl", "replay"):
