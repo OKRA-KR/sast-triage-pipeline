@@ -31,7 +31,7 @@ def _ex2(user, pw, resp_hdr, resp_body, status="200"):
 
 
 def test_site_agnostic_setcookie_redirect():
-    # gparking 특유 문자열 없음 — Set-Cookie + 302 로 성공 판정(사이트 무관)
+    # 특정 사이트 문자열 없음 — Set-Cookie + 302 로 성공 판정(사이트 무관)
     exs = [_ex2("bob", "wrong", "", "Invalid credentials"),
            _ex2("bob", "s3cret", "Set-Cookie: SID=abc; Path=/", "Redirecting...", "302")]
     t = {"ex": exs[0], "user_key": "username", "pw_key": "password"}

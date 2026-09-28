@@ -49,7 +49,7 @@
 - **수정 방향**: 2-pass 로 **login-path 매칭(`pathish`) 후보를 우선**, 없을 때만 일반 후보로
   폴백. 여러 후보 중 `POST` + `login|auth|signin|logon` 경로 + user/pw 키 동시 보유를 최고 점수로
   스코어링해 최적 1건 선택. `SAST_LOGIN_URL`(명시 지정) 이 있으면 그걸 최우선.
-- **수용 기준**: gparking 캡처(80건)에서 `POST /api/auth/login.php` 를 여전히 정확히 고르고,
+- **수용 기준**: 실 캡처(80건)에서 `POST /api/auth/login.php` 를 여전히 정확히 고르고,
   회원가입/비번변경 요청이 앞에 섞인 합성 캡처 fixture 에서도 로그인 요청을 고르는 유닛테스트.
 
 ### P0-2. 로그인 "성공" 오판 (silent auth failure) — 스캔을 조용히 무력화
@@ -93,7 +93,7 @@
      파라미터가 있을 때만 대상으로. (세션결정형 엔드포인트 오탐 차단)
   추가로 B 자신의 정상 응답과도 대조 가능하면 함께 사용(B가 원래 보는 것과 다르고 A와 같으면 강한 확증).
 - **수용 기준**: "요청에 객체 id 있고 B가 A토큰 획득" fixture → true_positive.
-  "세션결정형 /api/mypage" fixture → 확정 아님(needs_review 이하). gparking 재검증에서
+  "세션결정형 /api/mypage" fixture → 확정 아님(needs_review 이하). 실 캡처 재검증에서
   `/api/(inout|gate|facility|pgpayment)` 확정은 유지되되 근거에 A토큰 일치가 남을 것.
 
 ---

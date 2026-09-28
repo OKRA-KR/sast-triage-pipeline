@@ -31,5 +31,5 @@ def test_explicit_flags_override_and_env(monkeypatch):
 
 def test_name_fallback_order():
     assert cli._name_of(None, "https://app.example.com/x", None) == "app.example.com"
-    assert cli._name_of(None, None, "/a/b/gparking2") == "gparking2"
+    assert cli._name_of(None, None, "/a/b/capture2") == "capture2"
     assert cli._name_of(None, None, None) == "scan"

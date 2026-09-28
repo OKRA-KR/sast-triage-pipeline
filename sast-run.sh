@@ -19,7 +19,7 @@ if [ "$#" -eq 0 ]; then
   ./sast-run.sh https://target.example --active           # 능동 DAST + recon(하위도메인), 인가 전용
   ./sast-run.sh https://target.example --full             # + LLM 심화(SAST_LLM_* 설정 시)
   ./sast-run.sh https://target.example --domain           # 이 도메인 하나만(recon OFF)
-  ./sast-run.sh gparking2                                 # 캡처 패시브(패킷0)
+  ./sast-run.sh capture.har                                 # 캡처 패시브(패킷0)
   ./sast-run.sh ./myapp https://app.com cap.har --active  # 동시 + 상관분석
 USAGE
   exit 1

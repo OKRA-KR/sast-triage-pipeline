@@ -3,7 +3,8 @@ import os
 import pytest
 from sast import capture, login
 
-GP = "/mnt/c/Users/user/security/gparking"
+# 실 캡처 회귀(로컬 전용) — 경로는 환경변수로 주입, 없으면 스킵(현장 데이터 비커밋)
+GP = os.environ.get("SAST_TEST_CAPTURE", "")
 
 
 def _ex(method, url, body="", ct="application/x-www-form-urlencoded"):
@@ -43,8 +44,8 @@ def test_none_when_no_password_field():
     assert login.derive_login(exs) is None
 
 
-@pytest.mark.skipif(not os.path.exists(GP), reason="gparking 캡처 없음(로컬 전용)")
-def test_gparking_real_capture():
+@pytest.mark.skipif(not (GP and os.path.exists(GP)), reason="실 캡처 없음(SAST_TEST_CAPTURE 로컬 전용)")
+def test_real_capture_login_derive():
     t = login.derive_login(capture.parse(GP))
     assert t["ex"]["path"] == "/api/auth/login.php"
     assert (t["user_key"], t["pw_key"]) == ("user_id", "pwd")
