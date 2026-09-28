@@ -14,7 +14,7 @@ baseline 으로 재전송**하고 파라미터 하나만 변형해 확증한다:
 import hashlib, json, os, re, ssl, time, urllib.request, urllib.error
 from urllib.parse import urlparse, parse_qsl, urlencode
 from .schema import new_finding
-from .capture import _SQL_ERR, _IDOR_NAME, _body_params, _headers, _set_by_path, _OPAQUE
+from .capture import _SQL_ERR, _IDOR_NAME, _is_idor_name, _body_params, _headers, _set_by_path, _OPAQUE
 from . import env
 
 TIMEOUT = 10
@@ -127,16 +127,18 @@ def _is_read(ex):
     return ex["method"] == "GET" or any(w in p for w in ("search", "list", "view", "detail", "get", "read", "info", "payment", "inout"))
 
 
-def _idor_worthy(ex):
-    """2계정 IDOR 교차확증 대상? — 캡처에서 인증됐고, 비정적/비공개 데이터 읽기."""
-    if not (ex["req_headers"].get("cookie") or ex["req_headers"].get("authorization")):
-        return False                                  # 캡처에서 인증 안 된 요청 = 공개 → 제외
+def _idor_worthy(ex, authed=False):
+    """2계정 IDOR 교차확증 대상? — 인증된 비정적/비공개 데이터 읽기.
+    authed=True(로그인 세션으로 도는 스캔)면 ex 자체에 쿠키가 없어도 됨(세션이 인증 제공,
+    라우트 다리 교환 대응). 캡처 단독일 땐 ex 의 인증 헤더로 공개 요청을 걸러낸다."""
+    if not authed and not (ex["req_headers"].get("cookie") or ex["req_headers"].get("authorization")):
+        return False
     if ex["path"] in _PUBLIC or _STATIC.search(ex["path"]):
         return False
     if not _is_read(ex):
         return False
     # 민감 신호: /api/ 데이터 엔드포인트 또는 객체참조 파라미터 보유
-    return "/api/" in ex["path"] or any(_IDOR_NAME.search(k) for k, _, _ in _params(ex))
+    return "/api/" in ex["path"] or any(_is_idor_name(k) for k, _, _ in _params(ex))
 
 
 def _params(ex):
@@ -340,8 +342,8 @@ def scan_capture(exchanges, session=None, session_b=None, oob=None):
 
         # ── 2계정 권한검증(IDOR): A 요청을 B 세션으로 재전송 → B 응답에 'A 고유 토큰'이 있어야 확정 ──
         # 길이 유사만으로는 세션결정형(/api/mypage 처럼 id 무시하고 자기 데이터 반환) 오탐이 남는다.
-        a_ids = [str(v) for k, v, _ in _params(ex) if _IDOR_NAME.search(k) and str(v).strip()]
-        if session_b and _idor_worthy(ex) and not _blocked(base) and bl > 50 and a_ids:
+        a_ids = [str(v) for k, v, _ in _params(ex) if _is_idor_name(k) and str(v).strip()]
+        if session_b and _idor_worthy(ex, authed=session is not None) and not _blocked(base) and bl > 50 and a_ids:
             a_tokens = {t for t in (a_ids + list(_data_tokens(base[2]))) if len(t) >= 4}
             hb = _headers_for(ex, session_b.cookie)
             rb = _send(ex["method"], ex["url"], hb, ex["req_body"] or None)

@@ -269,6 +269,13 @@ def _body_params(ex):
 # ── 엔드포인트 인벤토리 ──────────────────────────────────────────────
 
 _IDOR_NAME = re.compile(r"(_sn|_id|_no|_seq|_idx|_num|(^|_)(id|no|seq|idx|uid|sn|num|pk|key))$", re.I)
+# camelCase 객체참조(carId·vehicleId·orderNo·userSeq 등) — 대소문자 구분(re.I 로는 avoid→id 오탐)
+_IDOR_CAMEL = re.compile(r"[a-z](Id|No|Seq|Idx|Num|Uid|Sn|Pk|Key)$")
+
+
+def _is_idor_name(name):
+    """객체참조 파라미터명 판별 — snake/whole-word(_IDOR_NAME) + camelCase(_IDOR_CAMEL)."""
+    return bool(_IDOR_NAME.search(name) or _IDOR_CAMEL.search(name))
 
 
 def endpoints(exs):
@@ -444,7 +451,7 @@ def passive_scan(exs):
         if auth:
             for name, val, _loc in ([(k, v, "q") for k, v in ex["query"]] +
                                     [(k, v, "b") for k, v, _ in _body_params(ex)]):
-                if _IDOR_NAME.search(name) and re.fullmatch(r"\d{1,12}", str(val or "").strip() or "x"):
+                if _is_idor_name(name) and re.fullmatch(r"\d{1,12}", str(val or "").strip() or "x"):
                     idor.setdefault(name, []).append(f"{ex['method']} {ex['path']}?{name}={val}")
 
         # 9) 상태변경 POST 에 CSRF 토큰/헤더 부재
