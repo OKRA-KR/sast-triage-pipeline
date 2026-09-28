@@ -72,6 +72,38 @@ def test_skips_test_dirs(tmp_path):
     assert all("/should/not/appear" != r["path"] for r in R)
 
 
+def test_risk_annotation(tmp_path):
+    _write(str(tmp_path), "src/main/java/Api.java", """
+        public class Api {
+          @GetMapping("/users") public void list() {}
+          @PostMapping("/users") public void create(@RequestParam String name) {}
+          @PostMapping("/account/delete") public void del() {}
+          @DeleteMapping("/session") public void logout() {}
+        }
+    """)
+    R = {(r["method"], r["path"]): r for r in routes.extract_routes(str(tmp_path))}
+    assert R[("GET", "/users")]["write"] is False
+    assert R[("GET", "/users")]["destructive"] is False
+    assert R[("POST", "/users")]["write"] is True
+    assert R[("POST", "/users")]["destructive"] is False
+    assert R[("POST", "/account/delete")]["destructive"] is True   # 경로에 delete
+    assert R[("DELETE", "/session")]["destructive"] is True         # DELETE 메서드
+
+
+def test_select_for_active_gate():
+    rs = [
+        dict(method="GET", path="/list", write=False, destructive=False),
+        dict(method="POST", path="/create", write=True, destructive=False),
+        dict(method="POST", path="/pay", write=True, destructive=True),
+    ]
+    # 기본: GET만
+    assert [r["path"] for r in routes.select_for_active(rs)] == ["/list"]
+    # 쓰기 허용: GET + 비파괴 쓰기 (파괴적 제외)
+    assert [r["path"] for r in routes.select_for_active(rs, allow_writes=True)] == ["/list", "/create"]
+    # 파괴적까지 허용
+    assert len(routes.select_for_active(rs, allow_writes=True, allow_destructive=True)) == 3
+
+
 def test_to_exchanges(tmp_path):
     rs = [dict(method="POST", path="/SqlInjection/attack", template="/SqlInjection/attack",
                params=["query"], framework="spring", source="x.java"),

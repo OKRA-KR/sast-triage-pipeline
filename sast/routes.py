@@ -43,6 +43,41 @@ _DJ_ROUTE = re.compile(r"\b(?:re_)?path\s*\(\s*[\"']([^\"']+)[\"']")
 # 경로 템플릿 변수 → 프로브 자리표시값 + 파라미터명 추출
 _PATH_VAR = re.compile(r"\{(\w+)(?::[^}]*)?\}|:(\w+)|<(?:[^:>]+:)?(\w+)>")
 
+# 상태변경 메서드 — 능동 주입 시 실제로 서버 상태를 바꾼다(옵트인 대상).
+_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# 파괴적/비가역·고비용 동사 — 경로에 있으면 능동 주입에서 기본 제외(인벤토리만).
+# 결제·삭제·초기화·권한변경처럼 되돌리기 어렵거나 부수효과가 큰 것.
+_DESTRUCTIVE = re.compile(
+    r"delete|remove|destroy|drop|purge|wipe|truncate|revoke|deactivat|disable|"
+    r"pay(ment)?|charge|billing|transfer|refund|withdraw|checkout|cancel|"
+    r"reset|shutdown|restart|reboot|deploy|migrat|logout|unsubscrib", re.I)
+
+
+def _annotate_risk(r):
+    """라우트에 write(상태변경)·destructive(파괴적) 위험 태그 부여."""
+    r["write"] = r["method"] in _WRITE_METHODS
+    r["destructive"] = (r["method"] == "DELETE") or bool(_DESTRUCTIVE.search(r["path"]))
+    return r
+
+
+def select_for_active(routes, allow_writes=False, allow_destructive=False):
+    """능동 주입 대상 선별(디스커버리-우선 안전레일).
+    - GET 등 비-상태변경: 항상 대상.
+    - 상태변경(POST/PUT/PATCH): allow_writes 일 때만.
+    - 파괴적(DELETE·삭제/결제/초기화 등): allow_destructive 일 때만.
+    인벤토리(표면 목록)는 이 필터와 무관하게 전체를 쓴다 — 발굴은 다 하되 주입만 게이트."""
+    picked = []
+    for r in routes:
+        if r.get("destructive"):
+            if allow_destructive:
+                picked.append(r)
+        elif r.get("write"):
+            if allow_writes:
+                picked.append(r)
+        else:
+            picked.append(r)
+    return picked
+
 
 def _norm_path(p):
     """라우트 경로 정규화 — 절대경로화, 중복 슬래시 정리."""
@@ -177,7 +212,7 @@ def extract_routes(root):
                 key = (r["method"], r["path"])
                 if key not in seen:
                     r["source"] = os.path.relpath(fp, root)
-                    seen[key] = r
+                    seen[key] = _annotate_risk(r)
     return list(seen.values())
 
 

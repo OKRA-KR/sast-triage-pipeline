@@ -206,11 +206,22 @@ def cmd_scan(a):
                     from . import routes as routes_mod
                     troutes = routes_mod.extract_routes(target)
                     if troutes:
-                        rex = routes_mod.to_exchanges(troutes, vu, cookie=os.environ.get("SAST_HTTP_COOKIE"))
+                        # 인벤토리(표면 목록)는 전체 — 발굴은 다 한다.
+                        endpoints_all += capture.endpoints(
+                            routes_mod.to_exchanges(troutes, vu))
+                        # 능동 주입은 안전레일로 게이트: GET 기본, 쓰기 옵트인, 파괴적 제외.
+                        allow_writes = bool(getattr(a, "probe_writes", False)
+                                            or os.environ.get("SAST_PROBE_WRITES"))
+                        allow_destr = bool(os.environ.get("SAST_PROBE_DESTRUCTIVE"))
+                        probe = routes_mod.select_for_active(troutes, allow_writes, allow_destr)
+                        rex = routes_mod.to_exchanges(probe, vu, cookie=os.environ.get("SAST_HTTP_COOKIE"))
                         exs_url = exs_url + rex
-                        endpoints_all += capture.endpoints(rex)
-                        print(f"[*] SAST→DAST 라우트 다리: 소스 라우트 {len(troutes)}개 → DAST 프로브 합류"
-                              " (크롤이 못 찾는 SPA/AJAX 표면)")
+                        writes = sum(1 for r in troutes if r.get("write") and not r.get("destructive"))
+                        destr = sum(1 for r in troutes if r.get("destructive"))
+                        print(f"[*] SAST→DAST 라우트 다리: 발굴 {len(troutes)}개(인벤토리) · "
+                              f"능동 프로브 {len(probe)}개 "
+                              f"[쓰기 {writes}건 {'포함' if allow_writes else '보류(--probe-writes)'} · "
+                              f"파괴적 {destr}건 {'포함' if allow_destr else '제외'}]")
                         if "route-bridge" not in layers:
                             layers.append("route-bridge")
                 findings = _run_active(exs_url, findings, require_session=False,
@@ -302,6 +313,9 @@ def main(argv=None):
                     help="recon 하위도메인 사전 파일(줄당 1개, 내장 사전에 추가)")
     sc.add_argument("--recon-same-port", action="store_true",
                     help="recon 으로 찾은 하위도메인을 대상과 같은 포트로 프로빙(기본: 443/80)")
+    sc.add_argument("--probe-writes", dest="probe_writes", action="store_true",
+                    help="라우트 다리에서 상태변경(POST/PUT/PATCH) 엔드포인트도 능동 주입(기본: GET만, 인가 대상 전용). "
+                         "파괴적(삭제·결제·초기화 등)은 이 옵션으로도 제외 — SAST_PROBE_DESTRUCTIVE=1 로만 강제")
     sc.add_argument("--oob", action="store_true",
                     help="OOB 콜백 리스너(blind SSRF/XXE/RCE 확증, 인가 전용; SAST_OOB_HOST 로 콜백주소 지정)")
     sc.add_argument("--insecure", action="store_true", help="TLS 인증서 검증 끔(자기서명 폐쇄망 대상 전용)")
