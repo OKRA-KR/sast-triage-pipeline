@@ -84,7 +84,7 @@ class Config:
             os.environ["SAST_ONLINE"] = "1"          # 2·3계층 게이트(LLM 설정 시만 실동작)
             os.environ.pop("SAST_NO_LLM", None)
             from .. import env
-            print(f"[*] --full: 능동 DAST + 오프라인 트리아지 + recon + LLM 심화 ({env.mode_label()})")
+            print(f"[*] --full: 능동 DAST(상태변경 포함) + 오프라인 트리아지 + recon + LLM 심화 ({env.mode_label()})")
         elif self.mode == "domain":
             os.environ["SAST_NO_LLM"] = "1"          # 1계층: LLM 강제 OFF
             os.environ["SAST_NO_RECON"] = "1"        # 단일 도메인: 정찰 OFF

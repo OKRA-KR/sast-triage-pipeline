@@ -54,9 +54,11 @@ flowchart LR
 
 | 명령 | 하는 일 | 하위도메인 정찰 | LLM |
 |---|---|:---:|:---:|
-| `./okra <URL> --active` | 능동 DAST + 오프라인 트리아지 | ✅ | ✗ |
-| `./okra <URL> --full` | `--active` + LLM 2·3계층 심화 | ✅ | ✅ (설정 시) |
+| `./okra <URL> --active` | 능동 DAST(GET만, 안전) + 오프라인 트리아지 | ✅ | ✗ |
+| `./okra <URL> --full` | `--active` + **상태변경(POST/PUT) 점검** + LLM 심화 | ✅ | ✅ (설정 시) |
 | `./okra <URL> --domain` | `--active`를 이 도메인 하나만 | ✗ | ✗ |
+
+깊이는 이 세 모드로만 정한다. `--active`는 GET만 찔러 안전하고, `--full`은 상태변경 엔드포인트까지 점검한다(삭제·결제·초기화 같은 파괴적 동사는 어느 모드에서도 제외). 즉 **점검 강도를 모드 하나로** 고른다.
 
 플래그를 안 주면 **안전 패시브** — 능동 프로브 0, 비파괴다.
 
@@ -69,7 +71,6 @@ flowchart LR
 ```
 
 자주 쓰는 옵션:
-- `--probe-writes` — DAST가 상태변경(POST/PUT) 엔드포인트도 주입한다. **기본은 GET만** 쏘고, 삭제·결제·초기화 같은 파괴적 동사는 이 옵션으로도 제외된다(`SAST_PROBE_DESTRUCTIVE=1`로만 강제).
 - `--no-recon` — 하위도메인 정찰 끄기 / `--recon-passive` — crt.sh·Wayback·DoH 패시브 소스까지 (도메인이 제3자로 나감)
 - `--cookie 'SESSION=..'` , `-H 'Authorization: Bearer ..'` — 인증 세션·헤더 주입
 - `--oob` — blind SSRF/XXE/RCE를 콜백 역접속으로 확증

@@ -209,9 +209,9 @@ def cmd_scan(a):
                         # 인벤토리(표면 목록)는 전체 — 발굴은 다 한다.
                         endpoints_all += capture.endpoints(
                             routes_mod.to_exchanges(troutes, vu))
-                        # 능동 주입은 안전레일로 게이트: GET 기본, 쓰기 옵트인, 파괴적 제외.
-                        allow_writes = bool(getattr(a, "probe_writes", False)
-                                            or os.environ.get("SAST_PROBE_WRITES"))
+                        # 능동 주입 게이트는 점검 깊이(축②)에 종속: --full 이면 상태변경까지, --active/--domain 은 GET만(안전).
+                        # 파괴적(삭제·결제·초기화)은 어느 모드에서도 제외 — 되돌리기 힘든 부수효과 방지(SAST_PROBE_DESTRUCTIVE 로만 강제).
+                        allow_writes = (cfg.mode == "full")
                         allow_destr = bool(os.environ.get("SAST_PROBE_DESTRUCTIVE"))
                         probe = routes_mod.select_for_active(troutes, allow_writes, allow_destr)
                         rex = routes_mod.to_exchanges(probe, vu, cookie=os.environ.get("SAST_HTTP_COOKIE"))
@@ -220,7 +220,7 @@ def cmd_scan(a):
                         destr = sum(1 for r in troutes if r.get("destructive"))
                         print(f"[*] SAST→DAST 라우트 다리: 발굴 {len(troutes)}개(인벤토리) · "
                               f"능동 프로브 {len(probe)}개 "
-                              f"[쓰기 {writes}건 {'포함' if allow_writes else '보류(--probe-writes)'} · "
+                              f"[쓰기 {writes}건 {'포함(--full)' if allow_writes else '제외(--active, GET만)'} · "
                               f"파괴적 {destr}건 {'포함' if allow_destr else '제외'}]")
                         if "route-bridge" not in layers:
                             layers.append("route-bridge")
@@ -300,7 +300,7 @@ def main(argv=None):
     depth.add_argument("--active", action="store_true",
                        help="능동 DAST + 오프라인 트리아지 + recon(하위도메인 정찰). LLM OFF, 폐쇄망 자립")
     depth.add_argument("--full", action="store_true",
-                       help="--active + LLM 2·3계층 심화(LLM 설정 시)")
+                       help="--active + 상태변경(POST/PUT) 엔드포인트 점검 + LLM 2·3계층 심화(LLM 설정 시). 파괴적 동사는 제외")
     depth.add_argument("--domain", action="store_true",
                        help="--active 를 이 도메인 하나만(recon OFF). 단일 호스트 점검")
     sc.add_argument("--recon", action="store_true",
@@ -313,9 +313,6 @@ def main(argv=None):
                     help="recon 하위도메인 사전 파일(줄당 1개, 내장 사전에 추가)")
     sc.add_argument("--recon-same-port", action="store_true",
                     help="recon 으로 찾은 하위도메인을 대상과 같은 포트로 프로빙(기본: 443/80)")
-    sc.add_argument("--probe-writes", dest="probe_writes", action="store_true",
-                    help="라우트 다리에서 상태변경(POST/PUT/PATCH) 엔드포인트도 능동 주입(기본: GET만, 인가 대상 전용). "
-                         "파괴적(삭제·결제·초기화 등)은 이 옵션으로도 제외 — SAST_PROBE_DESTRUCTIVE=1 로만 강제")
     sc.add_argument("--oob", action="store_true",
                     help="OOB 콜백 리스너(blind SSRF/XXE/RCE 확증, 인가 전용; SAST_OOB_HOST 로 콜백주소 지정)")
     sc.add_argument("--insecure", action="store_true", help="TLS 인증서 검증 끔(자기서명 폐쇄망 대상 전용)")
