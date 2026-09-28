@@ -257,7 +257,8 @@ function findingRows(f){
       ${precos}
       ${f.evidence?`<div class="kv"><h5>증거</h5><code>${esc(f.evidence)}</code></div>`:''}
       ${poc}${dyn}${sup}
-      ${f.fix?`<div class="kv"><h5>수정 방안</h5>${esc(f.fix)}</div>`:''}</div>
+      ${f.fix?`<div class="kv"><h5>수정 방안</h5>${esc(f.fix)}</div>`:''}
+      ${f.fix_example?`<div class="kv"><h5>안전패턴 예시</h5><pre><code>${esc(f.fix_example)}</code></pre></div>`:''}</div>
   </div></td>`;
   tr.addEventListener('click',()=>det.hidden=!det.hidden);
   return [tr,det];

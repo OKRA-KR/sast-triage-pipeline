@@ -9,6 +9,22 @@ import json, os
 RULES = os.path.join(os.path.dirname(__file__), "rules", "attack_playbook.json")
 # 카테고리 별칭 → 플레이북 키
 ALIAS = {"toctou": "missing-anti-automation"}
+# 파일 확장자 → 예시코드 언어(조치 예시를 대상 언어에 맞춰 고름)
+_LANG_EXT = {".java": "java", ".kt": "java", ".py": "python", ".js": "js", ".ts": "js",
+             ".mjs": "js", ".jsx": "js", ".tsx": "js", ".php": "php", ".go": "go"}
+
+
+def _lang_of(f):
+    return _LANG_EXT.get(os.path.splitext(f.get("file") or "")[1].lower())
+
+
+def _pick_example(fe, f):
+    """fix_example(언어별 dict 또는 문자열) → 대상 언어 예시, 없으면 generic."""
+    if isinstance(fe, str):
+        return fe
+    if isinstance(fe, dict):
+        return fe.get(_lang_of(f) or "generic") or fe.get("generic") or next(iter(fe.values()), "")
+    return ""
 
 
 def load(path=RULES):
@@ -36,6 +52,10 @@ def enrich(findings, pb=None):
             f["poc"] = poc
         if not f.get("fix") and entry.get("mitigate"):
             f["fix"] = entry["mitigate"]
+        if not f.get("fix_example") and entry.get("fix_example"):
+            ex = _pick_example(entry["fix_example"], f)
+            if ex:
+                f["fix_example"] = ex               # 언어별 안전패턴 예시코드(조치방안)
         if entry.get("detect"):
             ev = f.get("evidence") or ""
             probe = "탐지 프로브: " + entry["detect"]

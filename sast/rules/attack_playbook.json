@@ -2,7 +2,6 @@
   "version": 2,
   "note": "카테고리별 공격 플레이북(데이터 주도). ctf-web + reverse-skill(src-hunter) 에서 증류. 인가된 진단 전용. detect=탐지 프로브, poc=대표 공격구문, waf_bypass=WAF/필터 우회 기법, confirm=확증 신호, mitigate=조치. LLM 없이 1계층에서 finding 에 부착, 3계층(LLM)은 근거로 심화.",
   "source": "ctf-skills/ctf-web + zhaoxuya520/reverse-skill (src-hunter: payloader/waf-bypass, playbooks)",
-
   "playbook": {
     "sql-injection": {
       "detect": "따옴표 ' → 오류/동작변화. 시간지연 ' OR SLEEP(5)-- , 불리언 ' AND 1=1-- vs ' AND 1=2--",
@@ -10,7 +9,13 @@
       "waf_bypass": "인라인주석 /**/ · 키워드중첩 selSELECTect · 대소문자혼합 · 화이트스페이스 %09/%0a/%0b/%a0 · %00 · 이중URL인코딩 %2527 · hex 0x.. / CHAR(..) 인코딩 · MySQL 백틱 · 과다길이로 PCRE backtrack 우회",
       "confirm": "DB오류·인증우회·UNION결과·시간차·파일생성",
       "mitigate": "PreparedStatement/파라미터 바인딩(문자열연결 금지), 최소권한 계정, ORM, 화이트리스트 정렬컬럼",
-      "ref": "sql-injection.md, waf-bypass.md#sql"
+      "ref": "sql-injection.md, waf-bypass.md#sql",
+      "fix_example": {
+        "java": "PreparedStatement ps = con.prepareStatement(\n    \"SELECT * FROM users WHERE id = ?\");\nps.setInt(1, id);  // 문자열 연결 금지",
+        "python": "cur.execute(\"SELECT * FROM users WHERE id = %s\", (user_id,))  # 파라미터 바인딩",
+        "js": "db.query('SELECT * FROM users WHERE id = $1', [id])  // 플레이스홀더",
+        "generic": "쿼리에 사용자 입력을 문자열 연결하지 말고 파라미터 바인딩(플레이스홀더) 사용. 정렬컬럼 등은 화이트리스트."
+      }
     },
     "nosql-injection": {
       "detect": "연산자 주입 {\"$ne\":null}/{\"$gt\":\"\"}, $where JS평가, regex 블라인드",
@@ -18,7 +23,11 @@
       "waf_bypass": "JSON↔폼 전환, [$ne] 대괄호표기, 유니코드 키, $ 연산자 대소문자/인코딩",
       "confirm": "쿼리결과 변화/인증우회, $where 시간지연",
       "mitigate": "입력 타입강제(문자열만), $-접두 키 차단/이스케이프, 파라미터라이즈드",
-      "ref": "server-side-advanced-4.md, waf-bypass.md#nosql"
+      "ref": "server-side-advanced-4.md, waf-bypass.md#nosql",
+      "fix_example": {
+        "js": "// 사용자 입력을 쿼리 연산자로 못 쓰게 타입 강제\nconst id = String(req.body.id);\ndb.find({ _id: id });  // {$ne:...} 주입 차단",
+        "generic": "입력을 쿼리 객체에 그대로 넣지 말고 타입/스키마 검증. $ne·$where·$gt 등 연산자 주입 차단."
+      }
     },
     "command-injection": {
       "detect": "구분자 ; | ` $() , 개행 %0a, OOB `id`",
@@ -26,7 +35,12 @@
       "waf_bypass": "공백우회 ${IFS} / {cat,/flag} (brace) / <flag / $IFS$9 · 문자우회 c\\at / c$@at / 'c'at / \"c\"at · 와일드카드 /???/??t / /b??/c?t · base64 ech o Y2F0IC9mbGFn|base64 -d|bash · 16진 $(printf '\\x63\\x61\\x74')",
       "confirm": "명령출력 반환, OOB DNS/HTTP",
       "mitigate": "쉘 미사용(exec 인자배열), 화이트리스트, 메타문자 차단, 최소권한",
-      "ref": "waf-bypass.md#rce, field-notes.md"
+      "ref": "waf-bypass.md#rce, field-notes.md",
+      "fix_example": {
+        "python": "subprocess.run([\"ping\", \"-c\", \"1\", host], shell=False)  # 셸 경유 금지, 인자 배열",
+        "java": "new ProcessBuilder(\"ping\", \"-c\", \"1\", host).start();  // 셸 미경유",
+        "generic": "셸 경유 금지(인자 배열 전달) + 입력 화이트리스트 검증. 메타문자 필터에 의존하지 말 것."
+      }
     },
     "code-injection": {
       "detect": "평가 컨텍스트(eval/assert/역직렬화/OGNL/EL). 산술로 실행판별",
@@ -42,7 +56,10 @@
       "waf_bypass": "따옴표우회 __dict__.update(key=value) 키워드인자 · attribute traversal {0.__class__} · |attr('...') 필터 · request['args'] 우회 · 문자 concat ('o'+'s')",
       "confirm": "산술평가/명령출력",
       "mitigate": "사용자입력을 템플릿 소스로 금지(데이터로만), 샌드박스·오토이스케이프, 로직리스 템플릿",
-      "ref": "server-side.md, waf-bypass.md#ssti"
+      "ref": "server-side.md, waf-bypass.md#ssti",
+      "fix_example": {
+        "generic": "사용자 입력을 템플릿 소스로 렌더링 금지. 로직리스 템플릿 + 데이터는 변수로만 전달, 샌드박스."
+      }
     },
     "path-traversal": {
       "detect": "../../../etc/passwd. 필터시 ....// , ..%2f , %252e%252e%252f",
@@ -50,7 +67,11 @@
       "waf_bypass": "이중인코딩 %252e · 백슬래시 ..\\ · UTF-8 오버롱 %c0%ae · null %00(구버전) · 브레이스 {.}{.} · 절대경로 join 함정 os.path.join('/x','/etc/passwd')",
       "confirm": "파일내용(root:x:0:0)/소스 반환",
       "mitigate": "정규화 후 화이트리스트, 사용자입력 경로 금지, chroot/컨테이너",
-      "ref": "waf-bypass.md#lfi, server-side-advanced.md"
+      "ref": "waf-bypass.md#lfi, server-side-advanced.md",
+      "fix_example": {
+        "python": "p = os.path.realpath(os.path.join(BASE, name))\nif not p.startswith(BASE + os.sep):\n    raise ValueError('경로 이탈')",
+        "generic": "기준 디렉터리 하위로 정규화 검증(realpath 가 base 로 시작하는지). '..'·널바이트·절대경로 거부."
+      }
     },
     "xxe": {
       "detect": "XML 입력에 DOCTYPE ENTITY 주입",
@@ -58,7 +79,10 @@
       "waf_bypass": "외부 DTD 로 필터우회, 파라미터엔티티 %, UTF-16/EBCDIC 인코딩, CDATA",
       "confirm": "엔티티확장 파일내용/OOB 요청",
       "mitigate": "DTD·외부엔티티 비활성(FEATURE_SECURE_PROCESSING/disallow-doctype-decl)",
-      "ref": "server-side-2.md, waf-bypass.md#xxe"
+      "ref": "server-side-2.md, waf-bypass.md#xxe",
+      "fix_example": {
+        "generic": "XML 파서에서 외부 엔티티·DTD 비활성화(FEATURE_SECURE_PROCESSING, disallow-doctype-decl)."
+      }
     },
     "xss": {
       "detect": "<script>alert(1)</script> | <img src=x onerror=alert(1)> | <svg onload=alert(1)>",
@@ -66,7 +90,13 @@
       "waf_bypass": "대소문자 <ScRiPt> · 엔티티 &#60; / hex \\x3c · 무괄호 onerror=alert`1` · 유니코드 케이스폴딩 · JSFuck · 속성분할 on\\terror · 데이터URI/base tag/CSP nonce 우회",
       "confirm": "스크립트 실행(alert/OOB), 반사·저장·DOM",
       "mitigate": "출력 컨텍스트별 인코딩, CSP(nonce/strict-dynamic), HttpOnly, DOMPurify",
-      "ref": "client-side.md, waf-bypass.md#xss"
+      "ref": "client-side.md, waf-bypass.md#xss",
+      "fix_example": {
+        "java": "out.print(org.owasp.encoder.Encode.forHtml(userInput));  // 컨텍스트별 인코딩",
+        "python": "from markupsafe import escape\nreturn escape(user_input)  # 템플릿 자동이스케이프 유지",
+        "js": "el.textContent = userInput;   // innerHTML 금지\n// 불가피하면 DOMPurify.sanitize(html)",
+        "generic": "출력 컨텍스트(HTML/속성/JS/URL)별 인코딩 + CSP(nonce). innerHTML 지양, 쿠키 HttpOnly."
+      }
     },
     "ssrf": {
       "detect": "http://127.0.0.1 · http://169.254.169.254/(클라우드 메타데이터) · 우회 2130706433/127.1/[::1]",
@@ -74,7 +104,10 @@
       "waf_bypass": "IP 진법 변환(10진 2130706433/8진/16진 0x7f000001), 축약 127.1, 0.0.0.0, [::], nip.io/xip.io, 유니코드 점, 대체 스킴 dict/gopher/file",
       "confirm": "내부서비스 응답/OOB, 메타데이터 반환",
       "mitigate": "아웃바운드 목적지 화이트리스트, 링크로컬/사설망 차단, 리다이렉트 추적 금지, 메타데이터 hop 제한",
-      "ref": "server-side.md, waf-bypass.md#ssrf"
+      "ref": "server-side.md, waf-bypass.md#ssrf",
+      "fix_example": {
+        "generic": "대상 URL 을 허용 호스트 화이트리스트로 제한, 사설·메타데이터 IP(169.254.169.254 · 10./127./192.168.) 차단, 리다이렉트 비허용, DNS 재바인딩 대비."
+      }
     },
     "deserialization": {
       "detect": "Java rO0AB(b64)/aced0005 · Python pickle · PHP O: · Fastjson @type",
@@ -82,7 +115,10 @@
       "waf_bypass": "가젯체인 교체, 압축(gzip/base64) 래핑, PHP 직렬화 길이조작·S: 표기, Fastjson autotype 우회",
       "confirm": "가젯실행(OOB DNS 블라인드)",
       "mitigate": "신뢰불가 역직렬화 금지, 화이트리스트(ObjectInputFilter), 서명(HMAC), 필드만 전송",
-      "ref": "server-side-deser.md, waf-bypass.md#框架"
+      "ref": "server-side-deser.md, waf-bypass.md#框架",
+      "fix_example": {
+        "generic": "신뢰 못 하는 데이터 역직렬화 금지. 데이터 포맷(JSON) 사용 또는 허용 타입 화이트리스트. Java: ObjectInputFilter 적용."
+      }
     },
     "prototype-pollution": {
       "detect": "{\"__proto__\":{\"polluted\":true}} 주입 후 전역 오염 확인",
@@ -98,7 +134,11 @@
       "waf_bypass": "경로 세미콜론 /;/ · 뒤슬래시 //admin · %2f 인코딩 · 대소문자 /Admin · X-HTTP-Method-Override · X-Original-URL/X-Rewrite-URL",
       "confirm": "권한밖 리소스 접근/조작",
       "mitigate": "서버측 인가(요청마다 소유권), 간접참조, 기본거부, Actuator 노출차단",
-      "ref": "auth-and-access.md, waf-bypass.md#认证"
+      "ref": "auth-and-access.md, waf-bypass.md#认证",
+      "fix_example": {
+        "generic": "엔드포인트별 인가(역할/권한) 서버측 강제. 기능 접근도 검사(BFLA) — admin 경로를 저권한이 못 부르게. deny-by-default.",
+        "java": "@PreAuthorize(\"hasRole('ADMIN')\")  // 함수 레벨 인가\npublic void deleteUser(long id) { ... }"
+      }
     },
     "open-redirect": {
       "detect": "?redirect=/?next=/?url= 에 외부주소",
@@ -106,14 +146,20 @@
       "waf_bypass": "백슬래시 \\/, 이중슬래시, @, 공백/탭, 유니코드, 화이트리스트 도메인 접미사 evil.valid.com",
       "confirm": "외부 도메인 302",
       "mitigate": "리다이렉트 화이트리스트(상대경로만), 사용자입력 URL 미사용",
-      "ref": "auth-and-access.md, waf-bypass.md#开放重定向"
+      "ref": "auth-and-access.md, waf-bypass.md#开放重定向",
+      "fix_example": {
+        "generic": "리다이렉트 대상을 허용목록/상대경로로 제한. 사용자 입력 URL 을 Location 에 그대로 넣지 말 것."
+      }
     },
     "hardcoded-secret": {
       "detect": "소스/JS 번들/응답/VCS 히스토리서 키 포맷(AKIA·ghp_·AIza·xox[bp]·PEM 개인키·JDBC 비번·JWT) 노출 — 엔트로피/구조 검증으로 확정",
       "poc": "(인가범위) 유출 자격증명을 해당 서비스에 인증 시도해 유효성 확인 — GitHub: curl -H 'Authorization: token <ghp_..>' api.github.com/user | AWS: aws sts get-caller-identity | DB URI 직접 접속. JWT면 alg=none/키혼동(flask-unsign, hashcat -m 16500)도 시도",
       "confirm": "그 자격증명으로 인증 성공·계정/리소스 접근되면 라이브 시크릿 확정",
       "mitigate": "즉시 폐기·회전, VCS 히스토리서 제거(git filter-repo/BFG), 시크릿 매니저·환경변수로 이관, 최소권한·노출경로 차단",
-      "ref": "secrets-and-creds.md, auth-jwt.md#jwt"
+      "ref": "secrets-and-creds.md, auth-jwt.md#jwt",
+      "fix_example": {
+        "generic": "시크릿을 코드/리포에서 제거 → 환경변수·비밀관리자(Vault/KMS). 이미 노출된 키·인증서는 즉시 폐기·회전."
+      }
     },
     "sensitive-data": {
       "detect": "응답/로그/JS 에 평문 규제정보 노출 — 주민번호(체크섬)·카드(Luhn)·여권·연락처·이메일",
@@ -153,6 +199,16 @@
       "confirm": "다른 사용자 요청/응답 오염, 캐시 포이즈닝",
       "mitigate": "프론트/백 파서 정규화·일치, TE 우선·CL 거부, HTTP/2 end-to-end",
       "ref": "ssrf-cache-host.md, waf-bypass.md#请求走私"
+    },
+    "idor": {
+      "mitigate": "객체 접근마다 소유권/권한 서버측 검증(클라이언트가 준 id 불신). deny-by-default, 간접참조 매핑.",
+      "ref": "owasp-api1-bola",
+      "fix_example": {
+        "java": "// 객체 소유자를 세션 사용자와 대조(클라가 준 id 신뢰 금지)\nif (!order.getOwnerId().equals(currentUser.getId()))\n    throw new ForbiddenException();",
+        "python": "obj = Order.objects.get(pk=pk)\nif obj.owner_id != request.user.id:\n    raise PermissionDenied()  # 소유권 검사",
+        "js": "if (String(resource.ownerId) !== String(req.user.id))\n  return res.sendStatus(403);",
+        "generic": "모든 객체 접근에 '요청자==소유자/권한' 서버측 검사. 클라이언트가 준 객체 id 를 신뢰하지 말 것(BOLA/IDOR)."
+      }
     }
   }
 }
