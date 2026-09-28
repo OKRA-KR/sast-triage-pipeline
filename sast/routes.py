@@ -40,6 +40,20 @@ _JS_ROUTE = re.compile(
 # ── Django urls.py ────────────────────────────────────────────────────
 _DJ_ROUTE = re.compile(r"\b(?:re_)?path\s*\(\s*[\"']([^\"']+)[\"']")
 
+# ── 요청 바디 필드 마이닝(A: JSON-API 주입점 확보) ─────────────────────
+# Spring: @RequestBody <DTO타입> → DTO 클래스 필드가 JSON 바디 필드
+_JAVA_REQBODY = re.compile(r"@RequestBody\b\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:final\s+)?([A-Za-z_]\w*)(?:<[^>]*>)?\s+\w+")
+_JAVA_FIELD = re.compile(r"(?:private|protected|public)\s+(?:final\s+|static\s+|transient\s+)*"
+                         r"[\w.$]+(?:<[^>;=]*>)?(?:\[\])?\s+([a-z_]\w*)\s*(?:=|;)")
+_JAVA_CLASS = re.compile(r"\bclass\s+(\w+)")
+# Python(Django/Flask): request.data/json/POST 필드 접근
+_PY_BODY = re.compile(r"request\.(?:data|json|POST|body)(?:\.get\(|\[)\s*[\"'](\w+)[\"']"
+                      r"|(?:\bdata|\bpayload|\bbody)\.get\(\s*[\"'](\w+)[\"']")
+# Express: req.body.x / req.body['x'] / const {a,b} = req.body
+_JS_BODY = re.compile(r"req(?:uest)?\.body\.(\w+)|req(?:uest)?\.body\[\s*[\"'](\w+)[\"']")
+_JS_BODY_DESTRUCT = re.compile(r"(?:const|let|var)\s*\{([^}]+)\}\s*=\s*req(?:uest)?\.body")
+_FIELD_NOISE = {"serialVersionUID", "logger", "log", "serialversionuid"}
+
 # 경로 템플릿 변수 → 프로브 자리표시값 + 파라미터명 추출
 _PATH_VAR = re.compile(r"\{(\w+)(?::[^}]*)?\}|:(\w+)|<(?:[^:>]+:)?(\w+)>")
 
@@ -108,6 +122,60 @@ def _java_params(sig):
     return out
 
 
+def java_dto_index(texts):
+    """Java 소스들에서 클래스명 → 필드명 목록(요청 DTO 해석용). 필드는 각 클래스 선언 이후
+    나온 것으로 귀속(파일당 다중 클래스 대략 처리). 상수(ALL_CAPS)·노이즈 제외."""
+    idx = {}
+    for text in texts:
+        marks = [(m.start(), m.group(1)) for m in _JAVA_CLASS.finditer(text)]
+        for m in _JAVA_FIELD.finditer(text):
+            fname = m.group(1)
+            if fname in _FIELD_NOISE or fname.isupper():
+                continue
+            cls = None
+            for pos, name in marks:
+                if pos < m.start():
+                    cls = name
+                else:
+                    break
+            if cls:
+                idx.setdefault(cls, [])
+                if fname not in idx[cls]:
+                    idx[cls].append(fname)
+    return idx
+
+
+def _handler_window(text, pos):
+    """라우트 정의 위치부터 다음 라우트/함수 경계까지의 핸들러 본문(바디 필드 스캔용, 대략)."""
+    w = text[pos:pos + 1500]
+    nxt = re.search(r"\n@(?:app|router|r|\w+Mapping)|\n\s*def\s+\w+\s*\(", w[40:])
+    return w[:nxt.start() + 40] if nxt else w
+
+
+def _py_body_fields(win):
+    out = []
+    for m in _PY_BODY.finditer(win):
+        f = m.group(1) or m.group(2)
+        if f and f not in out:
+            out.append(f)
+    return out
+
+
+def _js_body_fields(win):
+    out = []
+    for m in _JS_BODY.finditer(win):
+        f = m.group(1) or m.group(2)
+        if f and f not in out:
+            out.append(f)
+    md = _JS_BODY_DESTRUCT.search(win)
+    if md:
+        for part in md.group(1).split(","):
+            f = part.split(":")[0].split("=")[0].strip()
+            if re.match(r"^\w+$", f) and f not in out:
+                out.append(f)
+    return out
+
+
 def _extract_java(text):
     routes = []
     # 클래스 레벨 프리픽스(@RequestMapping("/x") 가 class 선언 직전) — 있으면 메서드 경로에 prepend
@@ -136,8 +204,16 @@ def _extract_java(text):
         sig = tail.split("{", 1)[0]
         pnames, concrete = _path_vars(full)
         pnames += _java_params(sig)
+        # @RequestBody DTO → JSON 바디. 타입은 extract_routes 후처리에서 필드로 해석(_rbtype)
+        body = None
+        rbtype = None
+        rbm = _JAVA_REQBODY.search(sig)
+        if rbm:
+            body = "json"
+            if rbm.group(1) not in ("Map", "String", "Object", "JsonNode", "byte"):
+                rbtype = rbm.group(1)
         routes.append(dict(method=method, path=_norm_path(concrete), template=full,
-                           params=sorted(set(pnames)), framework="spring"))
+                           params=sorted(set(pnames)), framework="spring", body=body, _rbtype=rbtype))
     return routes
 
 
@@ -153,9 +229,11 @@ def _extract_python(text):
         else:
             methods = [verb.upper()]
         pnames, concrete = _path_vars(path)
+        bf = _py_body_fields(_handler_window(text, m.end())) if any(x in methods for x in _WRITE_METHODS) else []
+        body = "json" if bf else None
         for mtd in methods:
             routes.append(dict(method=mtd, path=_norm_path(concrete), template=_norm_path(path),
-                               params=sorted(set(pnames)), framework="flask/fastapi"))
+                               params=sorted(set(pnames + bf)), framework="flask/fastapi", body=body))
     return routes
 
 
@@ -165,9 +243,11 @@ def _extract_js(text):
         verb, path = m.group(1), m.group(2)
         methods = ["GET", "POST", "PUT", "DELETE", "PATCH"] if verb == "all" else [verb.upper()]
         pnames, concrete = _path_vars(path)
+        bf = _js_body_fields(_handler_window(text, m.end())) if any(x in methods for x in _WRITE_METHODS) else []
+        body = "json" if bf else None
         for mtd in methods:
             routes.append(dict(method=mtd, path=_norm_path(concrete), template=_norm_path(path),
-                               params=sorted(set(pnames)), framework="express"))
+                               params=sorted(set(pnames + bf)), framework="express", body=body))
     return routes
 
 
@@ -189,6 +269,7 @@ def extract_routes(root):
     """소스 트리에서 서버 라우트 추출 → [{method, path, template, params, framework, source}].
     (method, path) 로 중복 제거."""
     seen = {}
+    java_texts = []
     for dirpath, dirnames, files in os.walk(root):
         if _SKIP_DIR.search(dirpath):
             dirnames[:] = []
@@ -203,6 +284,8 @@ def extract_routes(root):
                 text = open(fp, encoding="utf-8", errors="replace").read()
             except OSError:
                 continue
+            if ext in (".java", ".kt"):
+                java_texts.append(text)
             # Django 는 urls.py 에서만
             if ext == ".py" and fn == "urls.py":
                 rs = _extract_django(text)
@@ -212,13 +295,23 @@ def extract_routes(root):
                 key = (r["method"], r["path"])
                 if key not in seen:
                     r["source"] = os.path.relpath(fp, root)
+                    r.setdefault("body", None)
                     seen[key] = _annotate_risk(r)
+    # A: Spring @RequestBody DTO 타입 → 클래스 필드를 JSON 바디 주입점으로 해석
+    dto = java_dto_index(java_texts)
+    for r in seen.values():
+        rb = r.pop("_rbtype", None)
+        if rb and dto.get(rb):
+            r["params"] = sorted(set((r.get("params") or []) + dto[rb]))
+    for r in seen.values():
+        r.pop("_rbtype", None)               # 남은 전이키 정리
     return list(seen.values())
 
 
 def to_exchanges(routes, base_url, cookie=None):
-    """라우트 → capture 교환(GET=쿼리 자리표시, POST/PUT/PATCH=폼바디 자리표시).
-    base_url 은 앱 컨텍스트 포함(예: http://host/WebGoat). replay/인벤토리 공용."""
+    """라우트 → capture 교환. GET=쿼리 자리표시, 그 외=바디 자리표시(JSON DTO 엔드포인트는
+    실제 필드가 든 JSON 바디 → replay 가 리프를 주입점으로 인식). base_url 은 앱 컨텍스트 포함."""
+    import json
     from . import capture
     base = base_url.rstrip("/")
     exs = []
@@ -230,6 +323,10 @@ def to_exchanges(routes, base_url, cookie=None):
             q = "&".join(k + "=1" for k in params)
             full = url + (("?" + q) if q else "")
             exs.append(capture._mk("GET", full, dict(hdr), "", "", "", "", "", ""))
+        elif r.get("body") == "json":
+            h = dict(hdr); h["content-type"] = "application/json"
+            body = json.dumps({k: "1" for k in params}) if params else "{}"
+            exs.append(capture._mk(r["method"], url, h, body, "", "", "", "", ""))
         else:
             h = dict(hdr); h["content-type"] = "application/x-www-form-urlencoded"
             body = "&".join(k + "=1" for k in params)
