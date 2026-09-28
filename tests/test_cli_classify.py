@@ -13,10 +13,11 @@ def test_classify_url_dir_file():
     with tempfile.NamedTemporaryFile("w", suffix=".har", delete=False) as fh:
         fh.write("{}"); f = fh.name
     try:
-        repo, verify, cap = cli._classify(_A([d, "https://x.example", f]))
+        repo, verify, cap, spec = cli._classify(_A([d, "https://x.example", f]))
         assert repo == os.path.abspath(d)
         assert verify == "https://x.example"
-        assert cap == os.path.abspath(f)
+        assert cap == os.path.abspath(f)          # {} 는 스펙 아님(paths/openapi 없음) → 캡처로
+        assert spec is None
         assert cli._name_of(repo, verify, cap) == os.path.basename(d)
     finally:
         os.unlink(f)
@@ -25,7 +26,7 @@ def test_classify_url_dir_file():
 def test_explicit_flags_override_and_env(monkeypatch):
     monkeypatch.delenv("SAST_VERIFY_URL", raising=False)
     monkeypatch.delenv("SAST_CAPTURE", raising=False)
-    repo, verify, cap = cli._classify(_A([], verify="https://v", capture="/tmp/c.xml"))
+    repo, verify, cap, spec = cli._classify(_A([], verify="https://v", capture="/tmp/c.xml"))
     assert (verify, cap) == ("https://v", "/tmp/c.xml")
 
 

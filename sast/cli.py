@@ -16,22 +16,69 @@ from . import triage, crossval, playbook, layer2, layer3, blackbox, active, okra
 from .core import Config, ScanContext, resolve_name
 
 
+def _is_spec_file(path):
+    """파일이 OpenAPI/Swagger/Postman 스펙(JSON)인가 — 캡처(HAR/Burp)와 구분."""
+    try:
+        import json
+        from . import spec as _spec
+        with open(path, encoding="utf-8", errors="replace") as f:
+            head = f.read(200000)
+        return _spec.is_spec(json.loads(head))
+    except Exception:
+        return False
+
+
+def _spec_routes(spec_file, base_url):
+    """API 스펙 → 라우트 목록. 스펙 파일(있으면) + 라이브 대상의 well-known 스펙 URL 프로브.
+    소스 없는 URL-only 대상에서 라우트 다리와 동일한 발굴원(경로·메서드·바디 필드)."""
+    from . import spec as _spec
+    out = []
+    if spec_file and os.path.isfile(spec_file):
+        try:
+            out += _spec.routes_from_spec(open(spec_file, encoding="utf-8", errors="replace").read())
+        except OSError:
+            pass
+    if base_url:
+        from urllib.parse import urlsplit
+        sp = urlsplit(base_url)
+        origin = f"{sp.scheme}://{sp.netloc}"
+        for path in _spec.WELL_KNOWN:
+            r = active._fetch(origin + path)
+            if r and 200 <= r[0] < 300 and r[2] and r[2].lstrip()[:1] in ("{", "["):
+                rs = _spec.routes_from_spec(r[2])
+                if rs:
+                    print(f"[*] 라이브 스펙 발견: {path} ({len(rs)} 엔드포인트)")
+                    out += rs
+                    break                             # 첫 유효 스펙만
+    # (method, path) 중복 제거
+    seen, uniq = set(), []
+    for r in out:
+        k = (r["method"], r["path"])
+        if k not in seen:
+            seen.add(k); uniq.append(r)
+    return uniq
+
+
 def _classify(a):
-    """positional 인자를 폴더(repo)/URL(verify)/캡처파일로 자동 분류.
+    """positional 인자를 폴더(repo)/URL(verify)/캡처파일/API스펙으로 자동 분류.
     명시 플래그는 제거(축① 정리) — 하위호환용 env(SAST_VERIFY_URL/SAST_CAPTURE)만 남긴다."""
     repo = None
     verify = getattr(a, "verify", None) or os.environ.get("SAST_VERIFY_URL")
     cap = getattr(a, "capture", None) or os.environ.get("SAST_CAPTURE")
+    spec = None
     for t in (a.targets or []):
         if re.match(r"https?://", t, re.I):
             verify = verify or t
         elif os.path.isdir(t):
             repo = repo or os.path.abspath(t)
         elif os.path.isfile(t):
-            cap = cap or os.path.abspath(t)          # 파일 = 캡처(파서가 형식 검증)
+            if spec is None and _is_spec_file(t):
+                spec = os.path.abspath(t)            # API 스펙(OpenAPI/Swagger/Postman)
+            else:
+                cap = cap or os.path.abspath(t)      # 파일 = 캡처(파서가 형식 검증)
         else:
             repo = repo or os.path.abspath(t)        # 미존재 경로 → repo 로 시도(래퍼가 clone 후 dir 전달)
-    return repo, verify, cap
+    return repo, verify, cap, spec
 
 
 def _run_active(exs, findings, require_session, oob=None, presession=None):
@@ -69,11 +116,11 @@ def cmd_scan(a):
     os.makedirs(out, exist_ok=True)
     cfg.apply_transport()                            # TLS/쿠키/헤더 → 다운스트림 env 브리지
 
-    target, verify_url, cap = _classify(a)           # 인자 자동판별(폴더/URL/캡처)
+    target, verify_url, cap, spec_file = _classify(a)   # 인자 자동판별(폴더/URL/캡처/API스펙)
     ctx = ScanContext(config=cfg, repo=target, verify_url=verify_url, capture=cap)
     have_repo = ctx.have_repo
     name = ctx.name
-    kinds = [k for k, v in (("소스", have_repo), ("URL", verify_url), ("캡처", cap)) if v]
+    kinds = [k for k, v in (("소스", have_repo), ("URL", verify_url), ("캡처", cap), ("API스펙", spec_file)) if v]
     if kinds:
         print(f"[*] 입력 인식: {', '.join(kinds)}")
 
@@ -185,11 +232,16 @@ def cmd_scan(a):
             if run_active and not cap:
                 print("[!] 능동 DAST(URL 크롤→replay) — 인가된 대상에만!")
                 exs_url, npg, nfm, bleaks = active.crawl_exchanges(vu)  # 1차: 로그인 폼 발견용(+본문 누수)
-                # 소스 라우트를 먼저 추출 — 로그인 유도(SPA/JSON-API)와 DAST 프로브에 공용
-                troutes = []
-                if have_repo:
-                    from . import routes as routes_mod
-                    troutes = routes_mod.extract_routes(target)
+                # 발굴원 통합 — 소스 라우트 다리 + API 스펙(파일/라이브)을 하나의 라우트 목록으로.
+                # (로그인 유도·주입·BOLA 가 이 목록 위에서 동일하게 동작)
+                from . import routes as routes_mod
+                troutes = routes_mod.extract_routes(target) if have_repo else []
+                sroutes = _spec_routes(spec_file, vu)     # 스펙 파일 + well-known 스펙 URL 프로브
+                if sroutes:
+                    have = {(r["method"], r["path"]) for r in troutes}
+                    add_s = [r for r in sroutes if (r["method"], r["path"]) not in have]
+                    troutes = troutes + add_s
+                    print(f"[*] API 스펙 임포트: 엔드포인트 {len(sroutes)}개(신규 {len(add_s)}) → 발굴/프로브 합류(소스 없는 표면)")
                 # 자격증명/캡처추출로 로그인. 크롤에 로그인 없으면 라우트 다리의 로그인 엔드포인트로(JSON-API/SPA)
                 sess_a, sess_b = login.build_sessions(exs_url, routes=troutes, base=vu)
                 if sess_a and sess_a.cookie and not str(sess_a.cookie).startswith("Bearer "):
